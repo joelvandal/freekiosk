@@ -66,6 +66,8 @@ const KEYS = {
   ALLOW_NOTIFICATIONS: '@kiosk_allow_notifications',
   // Allow System Info (audio fix for Samsung in lock mode)
   ALLOW_SYSTEM_INFO: '@kiosk_allow_system_info',
+  // Hide OEM navigation bar (Rockchip/industrial panels whose bar ignores immersive mode)
+  HIDE_NAVBAR: '@kiosk_hide_navbar',
   // Return to Settings
   RETURN_TAP_COUNT: '@kiosk_return_tap_count',
   RETURN_TAP_TIMEOUT: '@kiosk_return_tap_timeout',
@@ -1467,6 +1469,25 @@ export const StorageService = {
       return value ? JSON.parse(value) : false; // Default OFF
     } catch (error) {
       console.error('Error getting allow system info:', error);
+      return false;
+    }
+  },
+
+  // HIDE OEM NAVIGATION BAR (Rockchip/industrial panels)
+  saveHideNavbar: async (value: boolean): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.HIDE_NAVBAR, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving hide navbar:', error);
+    }
+  },
+
+  getHideNavbar: async (): Promise<boolean> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.HIDE_NAVBAR);
+      return value ? JSON.parse(value) : false; // Default OFF
+    } catch (error) {
+      console.error('Error getting hide navbar:', error);
       return false;
     }
   },

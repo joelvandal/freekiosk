@@ -151,6 +151,12 @@ class BootLockActivity : Activity() {
 
             startLockTask()
             DebugLog.d(TAG, "Lock-task started with whitelist: ${unique.toList()}")
+
+            // Hide the OEM (e.g. Rockchip) navigation bar at boot if the setting is on.
+            if (SystemBarHelper.isHideNavBarEnabled(this)) {
+                SystemBarHelper.applyHideNavigationBar(this, true)
+                DebugLog.d(TAG, "OEM navigation bar hiding applied at boot")
+            }
         } catch (e: Exception) {
             DebugLog.errorProduction(TAG, "Failed to enter lock-task: ${e.message}")
         }
