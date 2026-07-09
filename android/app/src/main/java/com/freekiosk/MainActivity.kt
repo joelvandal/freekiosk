@@ -1295,6 +1295,7 @@ class MainActivity : ReactActivity() {
       "mqtt_enabled", "mqtt_broker_url", "mqtt_port", "mqtt_username", "mqtt_password",
       "mqtt_client_id", "mqtt_base_topic", "mqtt_discovery_prefix", "mqtt_status_interval",
       "mqtt_allow_control", "mqtt_device_name",
+      "basic_auth_username", "basic_auth_password",
       "external_app_mode", "managed_apps"
     )
     if (adbConfigKeys.none { intent.hasExtra(it) }) return false
@@ -1465,6 +1466,15 @@ class MainActivity : ReactActivity() {
       // MQTT password goes to secure Keychain, not AsyncStorage
       // Use a special pending key that KioskScreen will handle
       editor.putString("@mqtt_password_pending", it)
+    }
+    // Website (HTTP Basic) authentication credentials
+    intent.getStringExtra("basic_auth_username")?.let {
+      editor.putString("@kiosk_http_basic_auth_username", it)
+    }
+    intent.getStringExtra("basic_auth_password")?.let {
+      // Basic-auth password goes to the secure Keychain via a pending key
+      // that KioskScreen migrates on load (same pattern as the MQTT password).
+      editor.putString("@basic_auth_password_pending", it)
     }
     intent.getStringExtra("mqtt_client_id")?.let {
       editor.putString("@kiosk_mqtt_client_id", it)
