@@ -12,7 +12,9 @@
 # Usage: ./install.sh [device-serial] [--url URL] [--pin PIN] [--build] [--debug]
 #        --url    Kiosk URL to preconfigure (default: https://kiosk.dev.sirsteward.com).
 #                 Quote URLs that contain & or ?, e.g. --url "https://x/?a=1&b=2".
-#        --pin    Kiosk PIN / password to preconfigure (default: 1234).
+#        --pin      Kiosk PIN / password to preconfigure (default: 1234).
+#        --username Website (HTTP Basic) auth username (optional).
+#        --password Website (HTTP Basic) auth password (optional; stored in Keychain).
 #        --build  Build the release APK first (./gradlew assembleRelease) and copy it
 #                 into android/app/release/ before installing.
 #        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
@@ -35,13 +37,17 @@ DOBUILD=""
 SERIAL=""
 KIOSK_URL="https://kiosk.dev.sirsteward.com"
 KIOSK_PIN="1234"
+KIOSK_USER=""
+KIOSK_PASS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --debug) DEBUG=1; shift ;;
-    --build) DOBUILD=1; shift ;;
-    --url)   KIOSK_URL="${2:-}"; shift 2 ;;
-    --pin)   KIOSK_PIN="${2:-}"; shift 2 ;;
-    *)       SERIAL="$1"; shift ;;
+    --debug)    DEBUG=1; shift ;;
+    --build)    DOBUILD=1; shift ;;
+    --url)      KIOSK_URL="${2:-}"; shift 2 ;;
+    --pin)      KIOSK_PIN="${2:-}"; shift 2 ;;
+    --username) KIOSK_USER="${2:-}"; shift 2 ;;
+    --password) KIOSK_PASS="${2:-}"; shift 2 ;;
+    *)          SERIAL="$1"; shift ;;
   esac
 done
 
@@ -182,10 +188,14 @@ echo "==> Enabling auto date/time (NTP) and auto timezone"
 "${ADB[@]}" shell setprop persist.sys.timezone "America/Montreal"
 
 echo "==> Preconfiguring kiosk URL ($KIOSK_URL)"
-# Wrap the URL in single quotes so the device shell treats & / ? literally.
-"${ADB[@]}" shell am start -n com.freekiosk/.MainActivity \
-  --es url "'$KIOSK_URL'" --es pin "'$KIOSK_PIN'" \
-  --ez kiosk_enabled true --es auto_relaunch "true"
+[[ -n "$KIOSK_USER" ]] && echo "==> Website auth username: $KIOSK_USER"
+# Wrap values in single quotes so the device shell treats & / ? literally.
+# Website Basic-auth extras are added only when --username / --password were given.
+am_args=(-n com.freekiosk/.MainActivity --es url "'$KIOSK_URL'" --es pin "'$KIOSK_PIN'")
+[[ -n "$KIOSK_USER" ]] && am_args+=(--es basic_auth_username "'$KIOSK_USER'")
+[[ -n "$KIOSK_PASS" ]] && am_args+=(--es basic_auth_password "'$KIOSK_PASS'")
+am_args+=(--ez kiosk_enabled true --es auto_relaunch "true")
+"${ADB[@]}" shell am start "${am_args[@]}"
 
 # Remove the software navigation bar permanently (ROOTED panels only).
 echo "==> Removing software navigation bar (ROOTED panels only; skipped otherwise)"

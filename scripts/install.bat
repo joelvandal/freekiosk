@@ -12,7 +12,9 @@ REM
 REM Usage: install.bat [device-serial] [--url URL] [--pin PIN] [--build] [--debug]
 REM        --url    Kiosk URL to preconfigure (default: https://kiosk.dev.sirsteward.com).
 REM                 Quote URLs that contain & or ?, e.g. --url "https://x/?a=1&b=2".
-REM        --pin    Kiosk PIN / password to preconfigure (default: 1234).
+REM        --pin      Kiosk PIN / password to preconfigure (default: 1234).
+REM        --username Website (HTTP Basic) auth username (optional).
+REM        --password Website (HTTP Basic) auth password (optional; stored in Keychain).
 REM        --build  Build the release APK first (gradlew assembleRelease) and copy it
 REM                 into android\app\release\ before installing.
 REM        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
@@ -37,23 +39,28 @@ set "DOBUILD="
 set "SERIAL="
 set "KIOSK_URL=https://kiosk.dev.sirsteward.com"
 set "KIOSK_PIN=1234"
-:parseargs
-if "%~1"=="" goto :argsdone
-if /I "%~1"=="--debug" (
+REM Parse from %* with for/f "tokens=1*" (splits on spaces only) so a URL query
+REM string like '?k=abc' is NOT broken apart on '=' the way %1/%2 tokenizing is.
+set "ARGS=%*"
+:argloop
+if not defined ARGS goto :argsdone
+for /f "tokens=1*" %%A in ("!ARGS!") do (set "TOK=%%A" & set "ARGS=%%B")
+if /I "!TOK!"=="--debug" (
     set "DEBUG=1"
-) else if /I "%~1"=="--build" (
+) else if /I "!TOK!"=="--build" (
     set "DOBUILD=1"
-) else if /I "%~1"=="--url" (
-    set "KIOSK_URL=%~2"
-    shift
-) else if /I "%~1"=="--pin" (
-    set "KIOSK_PIN=%~2"
-    shift
+) else if /I "!TOK!"=="--url" (
+    call :popval KIOSK_URL
+) else if /I "!TOK!"=="--pin" (
+    call :popval KIOSK_PIN
+) else if /I "!TOK!"=="--username" (
+    call :popval KIOSK_USER
+) else if /I "!TOK!"=="--password" (
+    call :popval KIOSK_PASS
 ) else (
-    set "SERIAL=%~1"
+    set "SERIAL=!TOK!"
 )
-shift
-goto :parseargs
+goto :argloop
 :argsdone
 
 if "%SERIAL%"=="" (set "ADB=adb") else (set "ADB=adb -s %SERIAL%")
@@ -195,8 +202,13 @@ echo ==^> Enabling auto date/time (NTP) and auto timezone
 %ADB% shell setprop persist.sys.timezone "America/Montreal"
 
 echo ==^> Preconfiguring kiosk URL: !KIOSK_URL!
-REM Wrap the URL in single quotes so the device shell treats '&' / '?' literally.
-%ADB% shell am start -n com.freekiosk/.MainActivity --es url "'%KIOSK_URL%'" --es pin "'%KIOSK_PIN%'" --ez kiosk_enabled true --es auto_relaunch "true"
+REM Wrap values in single quotes so the device shell treats '&' / '?' literally.
+REM Website Basic-auth extras are added only when --username / --password were given.
+set "AUTH="
+if defined KIOSK_USER set "AUTH=!AUTH! --es basic_auth_username "'!KIOSK_USER!'""
+if defined KIOSK_PASS set "AUTH=!AUTH! --es basic_auth_password "'!KIOSK_PASS!'""
+if defined KIOSK_USER echo ==^> Website auth username: !KIOSK_USER!
+%ADB% shell am start -n com.freekiosk/.MainActivity --es url "'%KIOSK_URL%'" --es pin "'%KIOSK_PIN%'"!AUTH! --ez kiosk_enabled true --es auto_relaunch "true"
 
 echo ==^> Removing software navigation bar (ROOTED panels only; skipped otherwise)
 echo     qemu.hw.mainkeys=1 tells Android there are hardware keys, so the OS never
@@ -220,6 +232,12 @@ del "%OUT%" 2>nul
 popd
 endlocal
 exit /b 0
+
+:popval
+REM Pop the next space-delimited token from ARGS into the variable named %1.
+set "%~1="
+for /f "tokens=1*" %%A in ("!ARGS!") do (set "%~1=%%A" & set "ARGS=%%B")
+goto :eof
 
 :diag
 echo(
