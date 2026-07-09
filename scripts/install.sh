@@ -194,7 +194,7 @@ echo "==> Preconfiguring kiosk URL ($KIOSK_URL)"
 am_args=(-n com.freekiosk/.MainActivity --es url "'$KIOSK_URL'" --es pin "'$KIOSK_PIN'")
 [[ -n "$KIOSK_USER" ]] && am_args+=(--es basic_auth_username "'$KIOSK_USER'")
 [[ -n "$KIOSK_PASS" ]] && am_args+=(--es basic_auth_password "'$KIOSK_PASS'")
-am_args+=(--ez kiosk_enabled true --es auto_relaunch "true")
+am_args+=(--ez kiosk_enabled true --es auto_relaunch "true" --es default_launcher "true")
 "${ADB[@]}" shell am start "${am_args[@]}"
 
 # Remove the software navigation bar permanently (ROOTED panels only).
