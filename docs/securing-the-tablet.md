@@ -219,6 +219,30 @@ ways out:
 > `SecurityException` when the app is already Device Owner (a DO can't be removed that way
 > on production ROMs). It is harmless — the scripts suppress it and continue.
 
+## Standalone one-file deploy — `deploy.bat` (Windows, no repo)
+
+`scripts/deploy.bat` is a **self-contained** deployer: copy just that one file to any
+Windows PC, plug in the device, and run it. It needs no repository and no build. It:
+
+1. installs Android platform-tools (adb) if `adb` is missing,
+2. **downloads the latest release APK** from `github.com/joelvandal/freekiosk`,
+3. runs the exact same provisioning as `install.bat` (Device Owner, permissions, default
+   Home, clock, kiosk URL/PIN, optional Website auth, nav-bar removal on rooted panels),
+   including the signature-mismatch auto-recovery.
+
+```
+deploy.bat [device-serial] [--url URL] [--pin PIN] [--username U] [--password P] [--debug]
+```
+
+Example:
+
+```
+deploy.bat --url "https://dashboard.example.com/kiosk" --pin 4821 --username admin --password s3cret
+```
+
+Requires `curl` + `tar` + PowerShell (all bundled with Windows 10+). Edit the `REPO=` line
+at the top of the file if you deploy from your own fork.
+
 ## Quick reference — run everything
 
 ```
