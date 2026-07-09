@@ -22,7 +22,6 @@
     "@react-navigation/stack": "^7.4.10",
     "react": "19.1.1",
     "react-native": "0.82.0",
-    "react-native-brightness-newarch": "^1.0.1",
     "react-native-fs": "^2.20.0",
     "react-native-gesture-handler": "^2.28.0",
     "react-native-keychain": "^10.0.0",
