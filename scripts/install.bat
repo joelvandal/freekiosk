@@ -8,7 +8,9 @@ REM   - grant WRITE_SECURE_SETTINGS and WRITE_SETTINGS
 REM   - set time/timezone and preconfigure the kiosk URL
 REM   - (ROOTED panels) remove the software navigation bar permanently
 REM
-REM Usage: install.bat [device-serial] [--debug]
+REM Usage: install.bat [device-serial] [--build] [--debug]
+REM        --build  Build the release APK first (gradlew assembleRelease) and copy it
+REM                 into android\app\release\ before installing.
 REM        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
 REM        If no serial is given, the only connected device is used.
 REM
@@ -24,10 +26,17 @@ set "OUT=%TEMP%\fk_install.txt"
 
 REM --- parse args: a bare token is the serial, --debug enables verbose mode ---
 set "DEBUG="
+set "DOBUILD="
 set "SERIAL="
 :parseargs
 if "%~1"=="" goto :argsdone
-if /I "%~1"=="--debug" (set "DEBUG=1") else (set "SERIAL=%~1")
+if /I "%~1"=="--debug" (
+    set "DEBUG=1"
+) else if /I "%~1"=="--build" (
+    set "DOBUILD=1"
+) else (
+    set "SERIAL=%~1"
+)
 shift
 goto :parseargs
 :argsdone
@@ -37,6 +46,26 @@ if "%SERIAL%"=="" (set "ADB=adb") else (set "ADB=adb -s %SERIAL%")
 REM Redirections that hide noise in normal mode but are shown under --debug.
 if defined DEBUG (set "Q=") else (set "Q=2>nul")
 if defined DEBUG (set "RQ=") else (set "RQ=>nul 2>&1")
+
+REM --build: produce a fresh release APK and stage it into APK_DIR before installing.
+if not defined DOBUILD goto :skipbuild
+echo ==^> Building release APK ^(gradlew assembleRelease^)...
+pushd "%~dp0..\android"
+call gradlew.bat assembleRelease
+if errorlevel 1 (
+    popd
+    echo ==^> Build FAILED
+    goto :fail
+)
+popd
+if not exist "%APK_DIR%" mkdir "%APK_DIR%"
+copy /Y "%~dp0..\android\app\build\outputs\apk\release\app-release.apk" "%APK_DIR%\%APK%" >nul
+if errorlevel 1 (
+    echo ==^> Could not copy the built APK
+    goto :fail
+)
+echo ==^> Built and staged %APK_DIR%\%APK%
+:skipbuild
 
 pushd "%APK_DIR%" || (echo Cannot cd to %APK_DIR% & exit /b 1)
 
