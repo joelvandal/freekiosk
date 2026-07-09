@@ -367,6 +367,35 @@ class KioskModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         }
     }
 
+    /**
+     * Best-effort hide/show of an OEM (e.g. Rockchip) on-screen navigation bar that
+     * ignores the framework immersive flags. See SystemBarHelper for the strategy list.
+     */
+    @ReactMethod
+    fun setHideNavigationBar(hide: Boolean, promise: Promise) {
+        try {
+            val ctx = reactApplicationContext
+            val activity = ctx.currentActivity
+            UiThreadUtil.runOnUiThread {
+                try {
+                    if (activity is MainActivity) {
+                        activity.setHideNavBarEnabled(hide)
+                    }
+                    SystemBarHelper.applyHideNavigationBar(ctx, hide)
+                    if (activity is MainActivity) {
+                        activity.reapplySystemBars()
+                    }
+                    android.util.Log.d("KioskModule", "setHideNavigationBar($hide) applied")
+                    promise.resolve(true)
+                } catch (e: Exception) {
+                    promise.reject("ERROR", "setHideNavigationBar failed: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            promise.reject("ERROR", e.message)
+        }
+    }
+
     @ReactMethod
     fun stopLockTask(promise: Promise) {
         try {

@@ -37,7 +37,11 @@ interface SecurityTabProps {
   // System Info (audio fix for Samsung)
   allowSystemInfo: boolean;
   onAllowSystemInfoChange: (value: boolean) => void;
-  
+
+  // Hide OEM navigation bar (Rockchip/industrial panels)
+  hideNavbar: boolean;
+  onHideNavbarChange: (value: boolean) => void;
+
   // Return to Settings
   returnMode: string; // 'tap_anywhere' | 'button'
   onReturnModeChange: (value: string) => void;
@@ -115,6 +119,8 @@ const SecurityTab: React.FC<SecurityTabProps> = ({
   onAllowNotificationsChange,
   allowSystemInfo,
   onAllowSystemInfoChange,
+  hideNavbar,
+  onHideNavbarChange,
   returnMode,
   onReturnModeChange,
   returnTapCount,
@@ -240,6 +246,13 @@ const SecurityTab: React.FC<SecurityTabProps> = ({
               hint="Displays the native Android status bar (time, battery, connectivity) in the locked app. This also fixes audio being muted on some Samsung/OneUI devices in lock mode."
               value={allowSystemInfo}
               onValueChange={onAllowSystemInfoChange}
+            />
+            <View style={styles.divider} />
+            <SettingsSwitch
+              label="📴 Hide Navigation Bar (OEM panels)"
+              hint="For Rockchip/industrial panels whose bottom bar (back/home/recents + volume) stays visible despite immersive mode. Sends the vendor SystemUI hide command and disables the status bar shade. ⚠️ Effect depends on the panel firmware; if the bar does not disappear, note the model/build so the exact command can be added."
+              value={hideNavbar}
+              onValueChange={onHideNavbarChange}
             />
           </>
         )}

@@ -70,6 +70,10 @@ class MainActivity : ReactActivity() {
   private val hideSystemUIHandler = Handler(Looper.getMainLooper())
   private var lastFocusLostTime = 0L
 
+  // Cached "@kiosk_hide_navbar" flag — when on, re-apply OEM (Rockchip) nav-bar hiding
+  // alongside the framework immersive mode. Read once in onCreate, updated when toggled.
+  @Volatile private var hideNavBarEnabled = false
+
   override fun getMainComponentName(): String = "FreeKiosk"
 
   override fun createReactActivityDelegate(): ReactActivityDelegate =
@@ -125,7 +129,10 @@ class MainActivity : ReactActivity() {
 
     readExternalAppConfig()
     ensureBootReceiverEnabled()
+    hideNavBarEnabled = SystemBarHelper.isHideNavBarEnabled(this)
     hideSystemUI()
+    applyOemNavBarHiding()
+    setupImmersiveReapplyListener()
     checkAndStartLockTask()
     applyDefaultLauncherPolicy()
 
@@ -753,7 +760,7 @@ class MainActivity : ReactActivity() {
         PrintModule.isPrintActive = false
         // Use a longer delay to let the print system activity fully dismiss
         hideSystemUIHandler.removeCallbacksAndMessages(null)
-        hideSystemUIHandler.postDelayed({ hideSystemUI() }, 1500L)
+        hideSystemUIHandler.postDelayed({ hideSystemUI(); applyOemNavBarHiding() }, 1500L)
         return
       }
       
@@ -764,7 +771,7 @@ class MainActivity : ReactActivity() {
       val timeSinceFocusLost = System.currentTimeMillis() - lastFocusLostTime
       val delay = if (timeSinceFocusLost < 1500L) 600L else 0L
       hideSystemUIHandler.removeCallbacksAndMessages(null)
-      hideSystemUIHandler.postDelayed({ hideSystemUI() }, delay)
+      hideSystemUIHandler.postDelayed({ hideSystemUI(); applyOemNavBarHiding() }, delay)
     }
   }
 
@@ -789,6 +796,58 @@ class MainActivity : ReactActivity() {
         or View.SYSTEM_UI_FLAG_FULLSCREEN
         or View.SYSTEM_UI_FLAG_LOW_PROFILE  // Cache les contrôles système (menu Samsung)
       )
+    }
+  }
+
+  /**
+   * Re-apply OEM (e.g. Rockchip) navigation-bar hiding when the "@kiosk_hide_navbar"
+   * setting is on. Framework immersive is handled by hideSystemUI(); this covers the
+   * vendor SystemUI bar (back/home/recents + volume) that ignores those flags. No-op
+   * when the setting is off. Best-effort — never throws into the caller.
+   */
+  internal fun applyOemNavBarHiding() {
+    if (!hideNavBarEnabled) return
+    try {
+      SystemBarHelper.applyHideNavigationBar(this, true)
+    } catch (e: Exception) {
+      DebugLog.d("MainActivity", "applyOemNavBarHiding failed: ${e.message}")
+    }
+  }
+
+  /** Update the cached flag when the setting is toggled at runtime (from KioskModule). */
+  internal fun setHideNavBarEnabled(enabled: Boolean) {
+    hideNavBarEnabled = enabled
+  }
+
+  /** Re-assert both framework immersive and OEM nav-bar hiding (called from KioskModule). */
+  internal fun reapplySystemBars() {
+    hideSystemUI()
+    applyOemNavBarHiding()
+  }
+
+  /**
+   * Keep immersive mode truly persistent. In sticky immersive Android always allows a
+   * transient reveal of the bars on a bottom-edge touch/swipe; there is no framework way
+   * to forbid that peek. The canonical fix (API < 30) is to listen for the bars becoming
+   * visible and immediately re-hide them, so the reveal is a brief flash instead of a
+   * lingering bar. On API 30+ the transient bars already auto-hide after a short timeout.
+   *
+   * Gated on hasWindowFocus() so we never fight a legitimate system window that needs the
+   * bars (e.g. the power menu / GlobalActions, which takes focus away from us).
+   */
+  private fun setupImmersiveReapplyListener() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) return
+    @Suppress("DEPRECATION")
+    window.decorView.setOnSystemUiVisibilityChangeListener { visibility ->
+      // FULLSCREEN flag cleared => a system bar just became visible.
+      if (visibility and View.SYSTEM_UI_FLAG_FULLSCREEN == 0 && hasWindowFocus()) {
+        hideSystemUIHandler.postDelayed({
+          if (hasWindowFocus()) {
+            hideSystemUI()
+            applyOemNavBarHiding()
+          }
+        }, 400L)
+      }
     }
   }
 
