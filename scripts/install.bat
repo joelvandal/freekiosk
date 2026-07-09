@@ -18,7 +18,10 @@ REM See docs/securing-the-tablet.md for the full explanation of each step.
 
 setlocal enabledelayedexpansion
 
-set "APK_DIR=%~dp0..\android\app\release"
+REM Capture the script dir BEFORE the arg loop: 'shift' below also shifts %0,
+REM which would corrupt %~dp0 in the --build block.
+set "SCRIPT_DIR=%~dp0"
+set "APK_DIR=%SCRIPT_DIR%..\android\app\release"
 set "APK=app-release.apk"
 set "PKG=com.freekiosk"
 set "ADMIN=%PKG%/.DeviceAdminReceiver"
@@ -50,7 +53,7 @@ if defined DEBUG (set "RQ=") else (set "RQ=>nul 2>&1")
 REM --build: produce a fresh release APK and stage it into APK_DIR before installing.
 if not defined DOBUILD goto :skipbuild
 echo ==^> Building release APK ^(gradlew assembleRelease^)...
-pushd "%~dp0..\android"
+pushd "%SCRIPT_DIR%..\android"
 call gradlew.bat assembleRelease
 if errorlevel 1 (
     popd
@@ -59,7 +62,7 @@ if errorlevel 1 (
 )
 popd
 if not exist "%APK_DIR%" mkdir "%APK_DIR%"
-copy /Y "%~dp0..\android\app\build\outputs\apk\release\app-release.apk" "%APK_DIR%\%APK%" >nul
+copy /Y "%SCRIPT_DIR%..\android\app\build\outputs\apk\release\app-release.apk" "%APK_DIR%\%APK%" >nul
 if errorlevel 1 (
     echo ==^> Could not copy the built APK
     goto :fail
