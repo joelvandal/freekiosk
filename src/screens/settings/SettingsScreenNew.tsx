@@ -1716,6 +1716,27 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
     );
   };
 
+  const handleRebootDevice = async (): Promise<void> => {
+    Alert.alert(
+      'Reboot Device',
+      'Are you sure you want to reboot the tablet now?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Reboot',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await KioskModule.reboot();
+            } catch (error) {
+              Alert.alert('Error', `Unable to reboot: ${error}`);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleRemoveDeviceOwner = async (): Promise<void> => {
     Alert.alert(
       '⚠️ Remove Device Owner',
@@ -2124,6 +2145,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
             onResetSettings={handleResetSettings}
             onExitKioskMode={handleExitKioskMode}
             onRemoveDeviceOwner={handleRemoveDeviceOwner}
+            onRebootDevice={handleRebootDevice}
             kioskEnabled={kioskEnabled}
             onRestoreComplete={loadSettings}
           />

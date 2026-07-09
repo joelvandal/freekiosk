@@ -439,6 +439,15 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
       };
     })();
 
+    // FreeKiosk device control.
+    //   window.freekiosk.reboot()  — reboot the tablet (requires Device Owner)
+    window.freekiosk = window.freekiosk || {};
+    window.freekiosk.reboot = function() {
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REBOOT_DEVICE' }));
+      } catch (e) { console.error('[freekiosk.reboot] failed', e); }
+    };
+
     // Throttling pour éviter le flood de messages (critique sur Fire OS)
     let lastInteraction = 0;
     const THROTTLE_MS = 200; // Max 5 messages/sec
@@ -843,6 +852,11 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
           }
           req.then((res: any) => respond(res, null))
              .catch((e: any) => respond(null, e?.message || 'audio error'));
+        } else if (data.type === 'REBOOT_DEVICE') {
+          // window.freekiosk.reboot() — reboot via KioskModule (Device Owner)
+          NativeModules.KioskModule?.reboot?.()
+            .then(() => console.log('[WebView] Reboot requested'))
+            .catch((err: any) => console.error('[WebView] Reboot failed:', err));
         } else if (data.type === 'PDF_VIEWER_CLOSE') {
           // User closed PDF viewer, go back to previous page
           if (webViewRef.current) {

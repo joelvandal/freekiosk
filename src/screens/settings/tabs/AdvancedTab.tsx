@@ -45,6 +45,7 @@ interface AdvancedTabProps {
   onResetSettings: () => void;
   onExitKioskMode: () => void;
   onRemoveDeviceOwner: () => void;
+  onRebootDevice: () => void;
   kioskEnabled: boolean;
   
   // Backup/Restore
@@ -69,6 +70,7 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
   onResetSettings,
   onExitKioskMode,
   onRemoveDeviceOwner,
+  onRebootDevice,
   kioskEnabled,
   onRestoreComplete,
 }) => {
@@ -370,7 +372,16 @@ const AdvancedTab: React.FC<AdvancedTabProps> = ({
           variant="warning"
           onPress={onResetSettings}
         />
-        
+
+        {isDeviceOwner && (
+          <SettingsButton
+            title="Reboot Device"
+            icon="power"
+            variant="warning"
+            onPress={onRebootDevice}
+          />
+        )}
+
         {isDeviceOwner && (
           <SettingsButton
             title="Remove Device Owner"
