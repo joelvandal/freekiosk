@@ -15,7 +15,10 @@ manually or adapt them.
 
 ## 0. Prerequisites
 
-- **ADB** installed on your computer (`adb devices` lists the tablet).
+- **ADB** — if `adb` is not on your `PATH`, the install scripts **download Google's
+  Android platform-tools automatically** (to `%LOCALAPPDATA%\FreeKiosk` on Windows,
+  `~/.freekiosk` on macOS/Linux) and use it for the session. Needs `curl` + `tar`
+  (bundled with Windows 10+) or `curl` + `unzip` on macOS/Linux.
 - **USB debugging** enabled on the tablet (Settings → Developer options).
 - The release APK built at `android/app/release/app-release.apk`
   (`cd android && ./gradlew assembleRelease`, then copy/point to it).

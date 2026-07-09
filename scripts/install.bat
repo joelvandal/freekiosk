@@ -1,5 +1,6 @@
 @echo off
 REM Provision a FreeKiosk tablet over ADB:
+REM   - auto-install Android platform-tools (adb) if adb is not on PATH
 REM   - install the release APK
 REM       * auto-recovers from a signature mismatch on ROOTED panels
 REM         (removes Device Owner, reboots, uninstalls, reinstalls)
@@ -49,6 +50,26 @@ if "%SERIAL%"=="" (set "ADB=adb") else (set "ADB=adb -s %SERIAL%")
 REM Redirections that hide noise in normal mode but are shown under --debug.
 if defined DEBUG (set "Q=") else (set "Q=2>nul")
 if defined DEBUG (set "RQ=") else (set "RQ=>nul 2>&1")
+
+REM Ensure adb is available; download Android platform-tools if it is missing.
+where adb >nul 2>&1 && goto :adbready
+set "TOOLS_ROOT=%LOCALAPPDATA%\FreeKiosk"
+set "TOOLS_DIR=%TOOLS_ROOT%\platform-tools"
+if exist "%TOOLS_DIR%\adb.exe" (
+    set "PATH=%TOOLS_DIR%;%PATH%"
+    goto :adbready
+)
+echo ==^> adb not found -- downloading Android platform-tools...
+if not exist "%TOOLS_ROOT%" mkdir "%TOOLS_ROOT%"
+curl -L -o "%TEMP%\platform-tools.zip" https://dl.google.com/android/repository/platform-tools-latest-windows.zip
+if errorlevel 1 (echo ==^> Download failed ^(need curl^). Install adb manually and re-run. & goto :fail)
+tar -xf "%TEMP%\platform-tools.zip" -C "%TOOLS_ROOT%"
+if errorlevel 1 (echo ==^> Extraction failed ^(need tar, Windows 10+^). Install adb manually. & goto :fail)
+del "%TEMP%\platform-tools.zip" 2>nul
+if not exist "%TOOLS_DIR%\adb.exe" (echo ==^> adb.exe missing after extract. & goto :fail)
+set "PATH=%TOOLS_DIR%;%PATH%"
+echo ==^> platform-tools installed to %TOOLS_DIR%
+:adbready
 
 REM --build: produce a fresh release APK and stage it into APK_DIR before installing.
 if not defined DOBUILD goto :skipbuild
