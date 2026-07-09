@@ -4,6 +4,9 @@ interface KioskModuleInterface {
   exitKioskMode(): Promise<boolean>;
   startLockTask(externalAppPackage?: string | null, allowPowerButton?: boolean, allowNotifications?: boolean, allowSystemInfo?: boolean, allowEmergencyCall?: boolean): Promise<boolean>;
   stopLockTask(): Promise<boolean>;
+  // Best-effort hide/show of an OEM (e.g. Rockchip) on-screen navigation bar that
+  // ignores the framework immersive flags.
+  setHideNavigationBar(hide: boolean): Promise<boolean>;
   isInLockTaskMode(): Promise<boolean>;
   getLockTaskModeState(): Promise<number>;
   isDeviceOwner(): Promise<boolean>;

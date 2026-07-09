@@ -1539,6 +1539,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
       const savedAllowPowerButton = bool(K.ALLOW_POWER_BUTTON, true);
       const savedAllowNotifications = bool(K.ALLOW_NOTIFICATIONS, false);
       const savedAllowSystemInfo = bool(K.ALLOW_SYSTEM_INFO, false);
+      const savedHideNavbar = bool(K.HIDE_NAVBAR, false);
 
       setDisplayMode(savedDisplayMode);
       setExternalAppPackage(savedExternalAppPackage);
@@ -1808,6 +1809,12 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
           // Pass external app package so it gets added to whitelist
           const packageToWhitelist = savedDisplayMode === 'external_app' && savedExternalAppPackage ? savedExternalAppPackage : undefined;
           await KioskModule.startLockTask(packageToWhitelist, savedAllowPowerButton, savedAllowNotifications, savedAllowSystemInfo, savedEmergencyEnabled);
+        } catch {
+          // Silent fail
+        }
+        // Hide the OEM (Rockchip) navigation bar if enabled — best-effort, non-blocking.
+        try {
+          await KioskModule.setHideNavigationBar(savedHideNavbar);
         } catch {
           // Silent fail
         }

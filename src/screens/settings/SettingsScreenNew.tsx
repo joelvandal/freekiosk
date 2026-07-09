@@ -135,6 +135,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const [allowPowerButton, setAllowPowerButton] = useState<boolean>(true);
   const [allowNotifications, setAllowNotifications] = useState<boolean>(false);
   const [allowSystemInfo, setAllowSystemInfo] = useState<boolean>(false);
+  const [hideNavbar, setHideNavbar] = useState<boolean>(false);
   const [returnMode, setReturnMode] = useState<string>('tap_anywhere');
   const [returnTapCount, setReturnTapCount] = useState<string>('5');
   const [returnTapTimeout, setReturnTapTimeout] = useState<string>('1500');
@@ -506,6 +507,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
     const savedAllowPowerButton = await StorageService.getAllowPowerButton();
     const savedAllowNotifications = await StorageService.getAllowNotifications();
     const savedAllowSystemInfo = await StorageService.getAllowSystemInfo();
+    const savedHideNavbar = await StorageService.getHideNavbar();
     const savedReturnMode = await StorageService.getReturnMode();
     const savedReturnTapCount = await StorageService.getReturnTapCount();
     const savedReturnTapTimeout = await StorageService.getReturnTapTimeout();
@@ -575,6 +577,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
     setAllowPowerButton(savedAllowPowerButton);
     setAllowNotifications(savedAllowNotifications);
     setAllowSystemInfo(savedAllowSystemInfo);
+    setHideNavbar(savedHideNavbar);
     setReturnMode(savedReturnMode);
     setReturnTapCount(String(savedReturnTapCount));
     setReturnTapTimeout(String(savedReturnTapTimeout));
@@ -1428,6 +1431,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
     await StorageService.saveAllowPowerButton(allowPowerButton);
     await StorageService.saveAllowNotifications(allowNotifications);
     await StorageService.saveAllowSystemInfo(allowSystemInfo);
+    await StorageService.saveHideNavbar(hideNavbar);
     await StorageService.saveReturnMode(returnMode);
     const tapCount = parseInt(returnTapCount, 10);
     await StorageService.saveReturnTapCount(isNaN(tapCount) ? 5 : Math.max(2, Math.min(20, tapCount)));
@@ -1573,6 +1577,14 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
       Alert.alert('Success', message, [
         { text: 'OK', onPress: () => { revokeSettingsAccess(); navigation.reset({ index: 0, routes: [{ name: 'Kiosk' }] }); } },
       ]);
+    }
+
+    // Apply OEM navigation-bar hiding (only effective in kiosk mode; passing false
+    // when kiosk is disabled restores the bar). Best-effort — non-blocking.
+    try {
+      await KioskModule.setHideNavigationBar(kioskEnabled && hideNavbar);
+    } catch (error) {
+      console.warn('[Settings] setHideNavigationBar error (non-blocking):', error);
     }
   };
 
@@ -2024,6 +2036,8 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
             onAllowNotificationsChange={setAllowNotifications}
             allowSystemInfo={allowSystemInfo}
             onAllowSystemInfoChange={setAllowSystemInfo}
+            hideNavbar={hideNavbar}
+            onHideNavbarChange={setHideNavbar}
             returnMode={returnMode}
             onReturnModeChange={setReturnMode}
             returnTapCount={returnTapCount}
