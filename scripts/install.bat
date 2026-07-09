@@ -9,9 +9,10 @@ REM   - grant WRITE_SECURE_SETTINGS and WRITE_SETTINGS
 REM   - set time/timezone and preconfigure the kiosk URL
 REM   - (ROOTED panels) remove the software navigation bar permanently
 REM
-REM Usage: install.bat [device-serial] [--url URL] [--build] [--debug]
+REM Usage: install.bat [device-serial] [--url URL] [--pin PIN] [--build] [--debug]
 REM        --url    Kiosk URL to preconfigure (default: https://kiosk.dev.sirsteward.com).
 REM                 Quote URLs that contain & or ?, e.g. --url "https://x/?a=1&b=2".
+REM        --pin    Kiosk PIN / password to preconfigure (default: 1234).
 REM        --build  Build the release APK first (gradlew assembleRelease) and copy it
 REM                 into android\app\release\ before installing.
 REM        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
@@ -35,6 +36,7 @@ set "DEBUG="
 set "DOBUILD="
 set "SERIAL="
 set "KIOSK_URL=https://kiosk.dev.sirsteward.com"
+set "KIOSK_PIN=1234"
 :parseargs
 if "%~1"=="" goto :argsdone
 if /I "%~1"=="--debug" (
@@ -43,6 +45,9 @@ if /I "%~1"=="--debug" (
     set "DOBUILD=1"
 ) else if /I "%~1"=="--url" (
     set "KIOSK_URL=%~2"
+    shift
+) else if /I "%~1"=="--pin" (
+    set "KIOSK_PIN=%~2"
     shift
 ) else (
     set "SERIAL=%~1"
@@ -191,7 +196,7 @@ echo ==^> Enabling auto date/time (NTP) and auto timezone
 
 echo ==^> Preconfiguring kiosk URL: !KIOSK_URL!
 REM Wrap the URL in single quotes so the device shell treats '&' / '?' literally.
-%ADB% shell am start -n com.freekiosk/.MainActivity --es url "'%KIOSK_URL%'" --es pin "1234" --ez kiosk_enabled true --es auto_relaunch "true"
+%ADB% shell am start -n com.freekiosk/.MainActivity --es url "'%KIOSK_URL%'" --es pin "'%KIOSK_PIN%'" --ez kiosk_enabled true --es auto_relaunch "true"
 
 echo ==^> Removing software navigation bar (ROOTED panels only; skipped otherwise)
 echo     qemu.hw.mainkeys=1 tells Android there are hardware keys, so the OS never
