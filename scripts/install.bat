@@ -29,8 +29,8 @@ pushd "%APK_DIR%" || (echo Cannot cd to %APK_DIR% & exit /b 1)
 echo ==^> Removing existing Device Admin (ignored if absent)
 %ADB% shell dpm remove-active-admin %ADMIN%
 
-echo ==^> Installing %APK%
-%ADB% install -r "%APK%"
+echo ==^> Installing %APK% (-d allows reinstalling over a higher versionCode)
+%ADB% install -r -d "%APK%"
 if errorlevel 1 goto :fail
 
 echo ==^> Setting Device Owner (%ADMIN%)
