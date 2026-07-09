@@ -28,8 +28,8 @@ else
   ADB=(adb)
 fi
 
-echo "==> Removing existing Device Admin (ignored if absent)"
-"${ADB[@]}" shell dpm remove-active-admin "$ADMIN" || true
+echo "==> Removing existing Device Admin (ignored if absent or already Device Owner)"
+"${ADB[@]}" shell dpm remove-active-admin "$ADMIN" 2>/dev/null || true
 
 echo "==> Installing $APK (-d allows reinstalling over a higher versionCode)"
 "${ADB[@]}" install -r -d "$APK"

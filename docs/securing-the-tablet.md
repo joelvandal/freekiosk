@@ -160,6 +160,45 @@ There is **no software way** to fully block the swipe-reveal without root. Best 
 
 ---
 
+## Troubleshooting install failures
+
+### `INSTALL_FAILED_VERSION_DOWNGRADE`
+The device already has a **higher `versionCode`** than the APK you built. The scripts use
+`adb install -r -d` (the `-d` flag allows the downgrade). If installing manually, add `-d`.
+
+### `INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match`
+The installed app was signed with a **different key** than your local build. By default a
+local release build falls back to `debug.keystore` (see `android/app/build.gradle`), which
+won't match an app that was signed with the real upload key. Android cannot update across
+signatures, and because FreeKiosk is **Device Owner** it can't simply be uninstalled. Two
+ways out:
+
+- **Sign the local build with the upload key** (keeps the current Device Owner + config).
+  Put the credentials in `android/gradle.properties` and rebuild:
+  ```
+  FREEKIOSK_UPLOAD_STORE_FILE=freekiosk-upload.jks      # path relative to android/app/
+  FREEKIOSK_UPLOAD_STORE_PASSWORD=********
+  FREEKIOSK_UPLOAD_KEY_ALIAS=********
+  FREEKIOSK_UPLOAD_KEY_PASSWORD=********
+  ```
+  Never commit that file or the keystore.
+
+- **Clean reset to the local (debug-signed) build** — one-time, requires **root**. Removes
+  Device Owner so the old app can be uninstalled, then reprovision:
+  ```
+  adb root
+  adb shell "rm -f /data/system/device_owner_2.xml /data/system/device_owner.xml /data/system/device_policies.xml"
+  adb reboot
+  # after boot:
+  adb uninstall com.freekiosk
+  scripts\install.bat        # or scripts/install.sh
+  ```
+  After this, all future local builds install in place (same debug key) — no repeat needed.
+
+> The `dpm remove-active-admin` line at the start of the scripts prints a Java
+> `SecurityException` when the app is already Device Owner (a DO can't be removed that way
+> on production ROMs). It is harmless — the scripts suppress it and continue.
+
 ## Quick reference — run everything
 
 ```
