@@ -8,7 +8,8 @@
 #   - set time/timezone and preconfigure the kiosk URL
 #   - (ROOTED panels) remove the software navigation bar permanently
 #
-# Usage: ./install.sh [device-serial]
+# Usage: ./install.sh [device-serial] [--debug]
+#        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
 #        If no serial is given, the only connected device is used.
 #
 # See docs/securing-the-tablet.md for the full explanation of each step.
@@ -22,16 +23,40 @@ PKG="com.freekiosk"
 ADMIN="${PKG}/.DeviceAdminReceiver"
 OUT="$(mktemp)"
 
+# --- parse args: a bare token is the serial, --debug enables verbose mode ---
+DEBUG=""
+SERIAL=""
+for arg in "$@"; do
+  if [[ "$arg" == "--debug" ]]; then DEBUG=1; else SERIAL="$arg"; fi
+done
+
 cd "$APK_DIR"
 
-if [[ $# -ge 1 ]]; then
-  ADB=(adb -s "$1")
-else
-  ADB=(adb)
+if [[ -n "$SERIAL" ]]; then ADB=(adb -s "$SERIAL"); else ADB=(adb); fi
+
+# In normal mode hide the noisy stderr of best-effort commands; in debug show it.
+if [[ -n "$DEBUG" ]]; then ERR=/dev/stderr; else ERR=/dev/null; fi
+
+diag() {
+  echo
+  echo "[debug] ---- diagnostics ----"
+  "${ADB[@]}" devices -l || true
+  echo "[debug] installed $PKG:"
+  "${ADB[@]}" shell dumpsys package "$PKG" 2>/dev/null | grep -E "versionName=|versionCode=" || true
+  echo "[debug] device owner:"
+  "${ADB[@]}" shell dumpsys device_policy 2>/dev/null | grep -iE "device owner|admin=" || true
+  echo "[debug] ---------------------"
+  echo
+}
+
+if [[ -n "$DEBUG" ]]; then
+  echo "[debug] verbose mode ON (ADB=${ADB[*]})"
+  diag
+  set -x
 fi
 
 echo "==> Removing existing Device Admin (ignored if absent or already Device Owner)"
-"${ADB[@]}" shell dpm remove-active-admin "$ADMIN" 2>/dev/null || true
+"${ADB[@]}" shell dpm remove-active-admin "$ADMIN" 2>"$ERR" || true
 
 install_apk() {
   # Prints adb output, returns 0 on Success.
@@ -85,9 +110,11 @@ if ! install_apk; then
   fi
 fi
 
+[[ -n "$DEBUG" ]] && diag || true
+
 echo "==> Setting Device Owner ($ADMIN)"
 # Non-fatal: already-Device-Owner (in-place update) is an expected 'failure' here.
-"${ADB[@]}" shell dpm set-device-owner "$ADMIN" 2>/dev/null || true
+"${ADB[@]}" shell dpm set-device-owner "$ADMIN" 2>"$ERR" || true
 
 echo "==> Granting WRITE_SECURE_SETTINGS to $PKG"
 "${ADB[@]}" shell pm grant "$PKG" android.permission.WRITE_SECURE_SETTINGS

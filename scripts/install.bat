@@ -8,7 +8,8 @@ REM   - grant WRITE_SECURE_SETTINGS and WRITE_SETTINGS
 REM   - set time/timezone and preconfigure the kiosk URL
 REM   - (ROOTED panels) remove the software navigation bar permanently
 REM
-REM Usage: install.bat [device-serial]
+REM Usage: install.bat [device-serial] [--debug]
+REM        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
 REM        If no serial is given, the only connected device is used.
 REM
 REM See docs/securing-the-tablet.md for the full explanation of each step.
@@ -21,16 +22,32 @@ set "PKG=com.freekiosk"
 set "ADMIN=%PKG%/.DeviceAdminReceiver"
 set "OUT=%TEMP%\fk_install.txt"
 
-if "%~1"=="" (
-    set "ADB=adb"
-) else (
-    set "ADB=adb -s %~1"
-)
+REM --- parse args: a bare token is the serial, --debug enables verbose mode ---
+set "DEBUG="
+set "SERIAL="
+:parseargs
+if "%~1"=="" goto :argsdone
+if /I "%~1"=="--debug" (set "DEBUG=1") else (set "SERIAL=%~1")
+shift
+goto :parseargs
+:argsdone
+
+if "%SERIAL%"=="" (set "ADB=adb") else (set "ADB=adb -s %SERIAL%")
+
+REM Redirections that hide noise in normal mode but are shown under --debug.
+if defined DEBUG (set "Q=") else (set "Q=2>nul")
+if defined DEBUG (set "RQ=") else (set "RQ=>nul 2>&1")
 
 pushd "%APK_DIR%" || (echo Cannot cd to %APK_DIR% & exit /b 1)
 
+if defined DEBUG (
+    echo [debug] verbose mode ON  ^(ADB=%ADB%^)
+    call :diag
+    echo on
+)
+
 echo ==^> Removing existing Device Admin (ignored if absent or already Device Owner)
-%ADB% shell dpm remove-active-admin %ADMIN% 2>nul
+%ADB% shell dpm remove-active-admin %ADMIN% %Q%
 
 echo ==^> Installing %APK% (-d allows reinstalling over a higher versionCode)
 %ADB% install -r -d "%APK%" > "%OUT%" 2>&1
@@ -69,6 +86,7 @@ set /a _tries=0
 :waitboot
 set "BOOT="
 for /f "usebackq delims=" %%i in (`%ADB% shell getprop sys.boot_completed 2^>nul`) do set "BOOT=%%i"
+if defined DEBUG echo [debug] boot_completed='!BOOT!' try=!_tries!
 echo !BOOT! | findstr "1" >nul && goto :booted
 set /a _tries+=1
 if !_tries! GEQ 60 (echo ==^> Timed out waiting for boot. & goto :fail)
@@ -87,10 +105,11 @@ type "%OUT%"
 findstr /C:"Success" "%OUT%" >nul || (echo ==^> Reinstall still failed. & goto :fail)
 
 :installed
+if defined DEBUG call :diag
 echo ==^> Setting Device Owner (%ADMIN%)
 REM Non-fatal: if the app is already Device Owner from a previous in-place update, this
 REM prints an error and we keep going (the desired end state is already reached).
-%ADB% shell dpm set-device-owner %ADMIN% 2>nul
+%ADB% shell dpm set-device-owner %ADMIN% %Q%
 
 echo ==^> Granting WRITE_SECURE_SETTINGS to %PKG%
 %ADB% shell pm grant %PKG% android.permission.WRITE_SECURE_SETTINGS
@@ -110,7 +129,7 @@ echo ==^> Preconfiguring kiosk URL
 echo ==^> Removing software navigation bar (ROOTED panels only; skipped otherwise)
 echo     qemu.hw.mainkeys=1 tells Android there are hardware keys, so the OS never
 echo     draws a software nav bar -- no swipe can bring it back. Requires 'adb root'.
-%ADB% root >nul 2>&1
+%ADB% root %RQ%
 %ADB% shell "id" | find "uid=0" >nul
 if errorlevel 1 (
     echo     Device not rooted -- skipping nav-bar removal.
@@ -129,6 +148,18 @@ del "%OUT%" 2>nul
 popd
 endlocal
 exit /b 0
+
+:diag
+echo(
+echo [debug] ---- diagnostics ----
+%ADB% devices -l
+echo [debug] installed %PKG%:
+%ADB% shell dumpsys package %PKG% | findstr /C:"versionName=" /C:"versionCode="
+echo [debug] device owner:
+%ADB% shell dumpsys device_policy | findstr /I /C:"Device Owner" /C:"admin="
+echo [debug] ---------------------
+echo(
+goto :eof
 
 :fail
 echo.

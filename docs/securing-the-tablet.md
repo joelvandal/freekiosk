@@ -207,11 +207,15 @@ ways out:
 
 ```
 # Windows
-scripts\install.bat [device-serial]
+scripts\install.bat [device-serial] [--debug]
 
 # macOS / Linux
-scripts/install.sh [device-serial]
+scripts/install.sh [device-serial] [--debug]
 ```
+
+Add `--debug` to trace every command, show the errors that are normally hidden, and print
+diagnostics (ADB devices, installed versionCode/Name, Device Owner state) before and after
+the install.
 
 The nav-bar removal section (step 6) runs automatically **only if `adb root` succeeds**; on
 a non-rooted device it is skipped, and the rest of the provisioning still completes.
