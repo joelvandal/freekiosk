@@ -8,7 +8,9 @@
 #   - set time/timezone and preconfigure the kiosk URL
 #   - (ROOTED panels) remove the software navigation bar permanently
 #
-# Usage: ./install.sh [device-serial] [--debug]
+# Usage: ./install.sh [device-serial] [--build] [--debug]
+#        --build  Build the release APK first (./gradlew assembleRelease) and copy it
+#                 into android/app/release/ before installing.
 #        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
 #        If no serial is given, the only connected device is used.
 #
@@ -23,12 +25,26 @@ PKG="com.freekiosk"
 ADMIN="${PKG}/.DeviceAdminReceiver"
 OUT="$(mktemp)"
 
-# --- parse args: a bare token is the serial, --debug enables verbose mode ---
+# --- parse args: a bare token is the serial, flags toggle features ---
 DEBUG=""
+DOBUILD=""
 SERIAL=""
 for arg in "$@"; do
-  if [[ "$arg" == "--debug" ]]; then DEBUG=1; else SERIAL="$arg"; fi
+  case "$arg" in
+    --debug) DEBUG=1 ;;
+    --build) DOBUILD=1 ;;
+    *)       SERIAL="$arg" ;;
+  esac
 done
+
+# --build: produce a fresh release APK and stage it into APK_DIR before installing.
+if [[ -n "$DOBUILD" ]]; then
+  echo "==> Building release APK (./gradlew assembleRelease)..."
+  ( cd "$SCRIPT_DIR/../android" && ./gradlew assembleRelease )
+  mkdir -p "$APK_DIR"
+  cp -f "$SCRIPT_DIR/../android/app/build/outputs/apk/release/app-release.apk" "$APK_DIR/$APK"
+  echo "==> Built and staged $APK_DIR/$APK"
+fi
 
 cd "$APK_DIR"
 

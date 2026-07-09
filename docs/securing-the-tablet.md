@@ -207,15 +207,16 @@ ways out:
 
 ```
 # Windows
-scripts\install.bat [device-serial] [--debug]
+scripts\install.bat [device-serial] [--build] [--debug]
 
 # macOS / Linux
-scripts/install.sh [device-serial] [--debug]
+scripts/install.sh [device-serial] [--build] [--debug]
 ```
 
-Add `--debug` to trace every command, show the errors that are normally hidden, and print
-diagnostics (ADB devices, installed versionCode/Name, Device Owner state) before and after
-the install.
+Add `--build` to build a fresh release APK (`gradlew assembleRelease`) and stage it into
+`android/app/release/` before installing. Add `--debug` to trace every command, show the
+errors that are normally hidden, and print diagnostics (ADB devices, installed
+versionCode/Name, Device Owner state) before and after the install.
 
 The nav-bar removal section (step 6) runs automatically **only if `adb root` succeeds**; on
 a non-rooted device it is skipped, and the rest of the provisioning still completes.
