@@ -194,6 +194,89 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
+    // ─── Media output force (jack vs speaker) — window.freekiosk.audio ──────────
+    // What the web app last requested via window.freekiosk.audio.set(...).
+    private var mediaForce: String? = null
+
+    // android.media.AudioSystem constants (stable across releases).
+    private val AS_FOR_MEDIA = 1
+    private val AS_FORCE_NONE = 0
+    private val AS_FORCE_SPEAKER = 1
+    private val AS_FORCE_HEADPHONES = 2
+
+    @ReactMethod
+    fun getMediaOutput(promise: Promise) {
+        try {
+            val am = audioManager()
+            val headsetPlugged = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET
+                }
+            } else {
+                @Suppress("DEPRECATION") am.isWiredHeadsetOn
+            }
+            val map = Arguments.createMap()
+            // Effective output: the forced value if set, else what the system uses now.
+            map.putString("output", mediaForce ?: if (headsetPlugged) "jack" else "speaker")
+            map.putString("forced", mediaForce)          // null when not overridden
+            map.putBoolean("headsetPlugged", headsetPlugged)
+            promise.resolve(map)
+        } catch (e: Exception) {
+            promise.reject("AUDIO_ERROR", e.message, e)
+        }
+    }
+
+    @ReactMethod
+    fun setMediaOutput(mode: String, promise: Promise) {
+        try {
+            val normalized = mode.lowercase()
+            val config = when (normalized) {
+                "speaker" -> AS_FORCE_SPEAKER
+                "jack", "headphones", "headset" -> AS_FORCE_HEADPHONES
+                else -> AS_FORCE_NONE   // "auto" / "both" / unknown
+            }
+            val privileged = forceMediaUse(config)
+            // Public-API fallback when the privileged route is unavailable.
+            val am = audioManager()
+            if (!privileged) {
+                if (normalized == "speaker") forceSpeakerRoute(am) else clearExplicitRoute(am)
+            }
+            mediaForce = if (normalized == "auto") null else normalized
+            val map = Arguments.createMap()
+            map.putBoolean("ok", true)
+            map.putString("output", normalized)
+            map.putBoolean("privileged", privileged) // true only if AudioSystem.setForceUse worked
+            promise.resolve(map)
+        } catch (e: Exception) {
+            promise.reject("AUDIO_ERROR", e.message, e)
+        }
+    }
+
+    /**
+     * Best-effort force of the MEDIA route via the hidden android.media.AudioSystem.
+     * Requires the system-only MODIFY_AUDIO_ROUTING permission, so on a normal
+     * (non-system) app this throws and we return false — the caller then falls back
+     * to the public communication-mode speaker trick.
+     */
+    private fun forceMediaUse(config: Int): Boolean {
+        return try {
+            val cls = Class.forName("android.media.AudioSystem")
+            val m = cls.getMethod(
+                "setForceUse",
+                Int::class.javaPrimitiveType,
+                Int::class.javaPrimitiveType
+            )
+            val ret = m.invoke(null, AS_FOR_MEDIA, config) as? Int ?: -1
+            (ret == 0).also {
+                android.util.Log.d("AudioControl", "AudioSystem.setForceUse($config) -> $ret")
+            }
+        } catch (e: Exception) {
+            android.util.Log.d("AudioControl", "AudioSystem.setForceUse unavailable: ${e.message}")
+            false
+        }
+    }
+
     private fun forceSpeakerRoute(am: AudioManager) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val speaker = am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)

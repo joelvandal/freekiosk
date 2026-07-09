@@ -402,6 +402,36 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
     ` : ''}
     ` : '// Printing disabled - window.print() not intercepted'}
 
+    // FreeKiosk audio output control.
+    //   await window.freekiosk.audio.get()               -> { output, forced, headsetPlugged }
+    //   await window.freekiosk.audio.set('speaker'|'jack'|'both'|'auto')
+    window.freekiosk = window.freekiosk || {};
+    (function() {
+      var _fkAudioPending = {};
+      var _fkAudioSeq = 0;
+      window.__fkAudioResolve = function(id, result, err) {
+        var p = _fkAudioPending[id];
+        if (!p) return;
+        delete _fkAudioPending[id];
+        if (err) { p.reject(new Error(err)); } else { p.resolve(result); }
+      };
+      function fkAudioCall(action, mode) {
+        return new Promise(function(resolve, reject) {
+          var id = 'fa' + (++_fkAudioSeq);
+          _fkAudioPending[id] = { resolve: resolve, reject: reject };
+          try {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'AUDIO_API', action: action, mode: mode || null, requestId: id
+            }));
+          } catch (e) { delete _fkAudioPending[id]; reject(e); }
+        });
+      }
+      window.freekiosk.audio = {
+        get: function() { return fkAudioCall('get'); },
+        set: function(mode) { return fkAudioCall('set', mode); }
+      };
+    })();
+
     // Throttling pour éviter le flood de messages (critique sur Fire OS)
     let lastInteraction = 0;
     const THROTTLE_MS = 200; // Max 5 messages/sec
@@ -783,6 +813,23 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
           DirectPrint.printSpec(spec)
             .then(() => console.log('[WebView] Direct print spec sent'))
             .catch((err: any) => console.error('[WebView] Direct print spec failed:', err));
+        } else if (data.type === 'AUDIO_API') {
+          // window.freekiosk.audio.get()/set() — bridge to AudioControlModule and
+          // resolve the page-side promise via injectJavaScript.
+          const AudioControl = NativeModules.AudioControlModule;
+          const rid = JSON.stringify(data.requestId);
+          const respond = (result: any, err: any) => {
+            const payload = err ? 'null' : JSON.stringify(result ?? null);
+            const errStr = err ? JSON.stringify(String(err)) : 'null';
+            webViewRef.current?.injectJavaScript(
+              `window.__fkAudioResolve && window.__fkAudioResolve(${rid}, ${payload}, ${errStr}); true;`
+            );
+          };
+          const req = data.action === 'set'
+            ? AudioControl.setMediaOutput(String(data.mode || 'auto'))
+            : AudioControl.getMediaOutput();
+          req.then((res: any) => respond(res, null))
+             .catch((e: any) => respond(null, e?.message || 'audio error'));
         } else if (data.type === 'PDF_VIEWER_CLOSE') {
           // User closed PDF viewer, go back to previous page
           if (webViewRef.current) {
