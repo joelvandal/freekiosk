@@ -9,9 +9,10 @@
 #   - set time/timezone and preconfigure the kiosk URL
 #   - (ROOTED panels) remove the software navigation bar permanently
 #
-# Usage: ./install.sh [device-serial] [--url URL] [--build] [--debug]
+# Usage: ./install.sh [device-serial] [--url URL] [--pin PIN] [--build] [--debug]
 #        --url    Kiosk URL to preconfigure (default: https://kiosk.dev.sirsteward.com).
 #                 Quote URLs that contain & or ?, e.g. --url "https://x/?a=1&b=2".
+#        --pin    Kiosk PIN / password to preconfigure (default: 1234).
 #        --build  Build the release APK first (./gradlew assembleRelease) and copy it
 #                 into android/app/release/ before installing.
 #        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
@@ -33,11 +34,13 @@ DEBUG=""
 DOBUILD=""
 SERIAL=""
 KIOSK_URL="https://kiosk.dev.sirsteward.com"
+KIOSK_PIN="1234"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --debug) DEBUG=1; shift ;;
     --build) DOBUILD=1; shift ;;
     --url)   KIOSK_URL="${2:-}"; shift 2 ;;
+    --pin)   KIOSK_PIN="${2:-}"; shift 2 ;;
     *)       SERIAL="$1"; shift ;;
   esac
 done
@@ -181,7 +184,7 @@ echo "==> Enabling auto date/time (NTP) and auto timezone"
 echo "==> Preconfiguring kiosk URL ($KIOSK_URL)"
 # Wrap the URL in single quotes so the device shell treats & / ? literally.
 "${ADB[@]}" shell am start -n com.freekiosk/.MainActivity \
-  --es url "'$KIOSK_URL'" --es pin "1234" \
+  --es url "'$KIOSK_URL'" --es pin "'$KIOSK_PIN'" \
   --ez kiosk_enabled true --es auto_relaunch "true"
 
 # Remove the software navigation bar permanently (ROOTED panels only).

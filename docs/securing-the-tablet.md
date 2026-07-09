@@ -223,14 +223,15 @@ ways out:
 
 ```
 # Windows
-scripts\install.bat [device-serial] [--build] [--debug]
+scripts\install.bat [device-serial] [--url URL] [--pin PIN] [--build] [--debug]
 
 # macOS / Linux
-scripts/install.sh [device-serial] [--build] [--debug]
+scripts/install.sh [device-serial] [--url URL] [--pin PIN] [--build] [--debug]
 ```
 
 Add `--url "https://…"` to set the kiosk URL (default `https://kiosk.dev.sirsteward.com`);
-quote URLs that contain `&` or `?`. Add `--build` to build a fresh release APK
+quote URLs that contain `&` or `?`. Add `--pin PIN` to set the kiosk PIN / password
+(default `1234`). Add `--build` to build a fresh release APK
 (`gradlew assembleRelease`) and stage it into `android/app/release/` before installing. Add
 `--debug` to trace every command, show the errors that are normally hidden, and print
 diagnostics (ADB devices, installed versionCode/Name, Device Owner state) before and after
