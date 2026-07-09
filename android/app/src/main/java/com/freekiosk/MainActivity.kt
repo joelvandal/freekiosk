@@ -1295,7 +1295,7 @@ class MainActivity : ReactActivity() {
       "mqtt_enabled", "mqtt_broker_url", "mqtt_port", "mqtt_username", "mqtt_password",
       "mqtt_client_id", "mqtt_base_topic", "mqtt_discovery_prefix", "mqtt_status_interval",
       "mqtt_allow_control", "mqtt_device_name",
-      "basic_auth_username", "basic_auth_password",
+      "basic_auth_username", "basic_auth_password", "default_launcher",
       "external_app_mode", "managed_apps"
     )
     if (adbConfigKeys.none { intent.hasExtra(it) }) return false
@@ -1409,7 +1409,13 @@ class MainActivity : ReactActivity() {
     intent.getStringExtra("auto_relaunch")?.let {
       editor.putString("@kiosk_auto_relaunch_app", it)
     }
-    
+
+    // default_launcher: "true" = FreeKiosk becomes the persistent Home (no "Select a
+    // Home app" chooser). Applied by applyDefaultLauncherPolicy() on every launch.
+    intent.getStringExtra("default_launcher")?.let {
+      editor.putString("@kiosk_default_launcher", it)
+    }
+
     // test_mode: "true" = show return button with timer, "false" = immediate return (production)
     intent.getStringExtra("test_mode")?.let {
       editor.putString("@kiosk_external_app_test_mode", it)
