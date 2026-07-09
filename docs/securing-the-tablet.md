@@ -229,10 +229,12 @@ scripts\install.bat [device-serial] [--build] [--debug]
 scripts/install.sh [device-serial] [--build] [--debug]
 ```
 
-Add `--build` to build a fresh release APK (`gradlew assembleRelease`) and stage it into
-`android/app/release/` before installing. Add `--debug` to trace every command, show the
-errors that are normally hidden, and print diagnostics (ADB devices, installed
-versionCode/Name, Device Owner state) before and after the install.
+Add `--url "https://…"` to set the kiosk URL (default `https://kiosk.dev.sirsteward.com`);
+quote URLs that contain `&` or `?`. Add `--build` to build a fresh release APK
+(`gradlew assembleRelease`) and stage it into `android/app/release/` before installing. Add
+`--debug` to trace every command, show the errors that are normally hidden, and print
+diagnostics (ADB devices, installed versionCode/Name, Device Owner state) before and after
+the install. Example: `install.bat --build --url "https://dashboard.example.com/kiosk"`.
 
 The nav-bar removal section (step 6) runs automatically **only if `adb root` succeeds**; on
 a non-rooted device it is skipped, and the rest of the provisioning still completes.
