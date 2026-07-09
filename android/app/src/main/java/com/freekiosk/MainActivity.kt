@@ -105,6 +105,10 @@ class MainActivity : ReactActivity() {
       return  // Exit - app restarting with new config
     }
 
+    // Persistently grant our own dangerous permissions (Device Owner) so a silent
+    // self-update never leaves camera / mic / location revoked.
+    grantOwnRuntimePermissions()
+
     // Request location permission for WiFi SSID access (Android 8+ requires it)
     requestLocationPermission()
 
@@ -326,6 +330,37 @@ class MainActivity : ReactActivity() {
       }
     } catch (e: Exception) {
       DebugLog.errorProduction("MainActivity", "Failed to apply default launcher policy: ${e.message}")
+    }
+  }
+
+  /**
+   * As Device Owner, persistently grant our own runtime permissions. A silent
+   * self-update (PackageInstaller) otherwise resets pm-grant'd permissions, leaving
+   * camera / mic / location revoked after every OTA — which breaks motion detection
+   * and vision-camera. setPermissionGrantState survives updates and needs no ADB.
+   */
+  private fun grantOwnRuntimePermissions() {
+    try {
+      if (!devicePolicyManager.isDeviceOwnerApp(packageName)) return
+      val perms = arrayOf(
+        android.Manifest.permission.CAMERA,
+        android.Manifest.permission.RECORD_AUDIO,
+        android.Manifest.permission.ACCESS_FINE_LOCATION,
+        android.Manifest.permission.ACCESS_COARSE_LOCATION
+      )
+      for (p in perms) {
+        try {
+          devicePolicyManager.setPermissionGrantState(
+            adminComponent, packageName, p,
+            DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+          )
+        } catch (e: Exception) {
+          DebugLog.d("MainActivity", "grant $p failed: ${e.message}")
+        }
+      }
+      DebugLog.d("MainActivity", "Runtime permissions granted via Device Owner")
+    } catch (e: Exception) {
+      DebugLog.d("MainActivity", "grantOwnRuntimePermissions failed: ${e.message}")
     }
   }
 

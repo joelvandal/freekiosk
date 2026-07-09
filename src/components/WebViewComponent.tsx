@@ -221,20 +221,27 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
       const wv = webViewRef.current;
       if (!wv) return;
       wv.injectJavaScript(MEDIA_PAUSE_JS);
-      const node = findNodeHandle(wv);
-      if (node != null) {
-        KioskModule.pauseWebView?.(node).catch(() => {});
-      }
+      // findNodeHandle throws on the New Architecture when the WebView ref is an
+      // imperative handle (not a host component) — the JS media pause above already
+      // ran, so skip the native renderer suspend rather than crashing the app.
+      try {
+        const node = findNodeHandle(wv);
+        if (node != null) {
+          KioskModule.pauseWebView?.(node).catch(() => {});
+        }
+      } catch { /* renderer suspend unavailable on this arch */ }
     },
     // Resume only re-enables the WebView renderer; media is intentionally left paused so
     // audio doesn't auto-restart on its own (the page/user decides).
     resumeMedia: () => {
       const wv = webViewRef.current;
       if (!wv) return;
-      const node = findNodeHandle(wv);
-      if (node != null) {
-        KioskModule.resumeWebView?.(node).catch(() => {});
-      }
+      try {
+        const node = findNodeHandle(wv);
+        if (node != null) {
+          KioskModule.resumeWebView?.(node).catch(() => {});
+        }
+      } catch { /* renderer resume unavailable on this arch */ }
     }
   }));
 
