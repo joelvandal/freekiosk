@@ -104,6 +104,12 @@ android {
         // Expose self-update flag to both Kotlin (BuildConfig) and JS (via UpdateModule constants)
         buildConfigField "boolean", "ENABLE_SELF_UPDATE", "${enableSelfUpdate}"
 
+        // Optional GitHub token for the self-update check/download. Leave empty for a public
+        // releases repo. For a PRIVATE repo, set FREEKIOSK_UPDATE_TOKEN=ghp_xxx in
+        // android/gradle.properties (a fine-scoped, read-only PAT). Baked into the APK, so
+        // only use a token with minimal scope.
+        buildConfigField "String", "UPDATE_TOKEN", "\"${keystoreProperties.getProperty('FREEKIOSK_UPDATE_TOKEN', '')}\""
+
         // Play Store compliance: when -Pplaystore is set, replace REQUEST_INSTALL_PACKAGES
         // with INTERNET (already declared → deduplicated by manifest merger → effectively removed)
         // and disable UpdateInstallReceiver.
