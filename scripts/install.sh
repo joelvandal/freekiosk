@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Provision a FreeKiosk tablet over ADB:
+#   - auto-install Android platform-tools (adb) if adb is not on PATH
 #   - install the release APK
 #       * auto-recovers from a signature mismatch on ROOTED panels
 #         (removes Device Owner, reboots, uninstalls, reinstalls)
@@ -36,6 +37,28 @@ for arg in "$@"; do
     *)       SERIAL="$arg" ;;
   esac
 done
+
+# Ensure adb is available; download Android platform-tools if it is missing.
+if ! command -v adb >/dev/null 2>&1; then
+  TOOLS_DIR="$HOME/.freekiosk/platform-tools"
+  if [[ -x "$TOOLS_DIR/adb" ]]; then
+    export PATH="$TOOLS_DIR:$PATH"
+  else
+    echo "==> adb not found -- downloading Android platform-tools..."
+    case "$(uname -s)" in
+      Darwin) PT_OS=darwin ;;
+      Linux)  PT_OS=linux ;;
+      *) echo "==> Unsupported OS for auto-install; install adb manually."; exit 1 ;;
+    esac
+    mkdir -p "$HOME/.freekiosk"
+    ZIP="$(mktemp).zip"
+    curl -L -o "$ZIP" "https://dl.google.com/android/repository/platform-tools-latest-${PT_OS}.zip"
+    unzip -q -o "$ZIP" -d "$HOME/.freekiosk"
+    rm -f "$ZIP"
+    export PATH="$TOOLS_DIR:$PATH"
+  fi
+  command -v adb >/dev/null 2>&1 || { echo "==> adb still not available."; exit 1; }
+fi
 
 # --build: produce a fresh release APK and stage it into APK_DIR before installing.
 if [[ -n "$DOBUILD" ]]; then
