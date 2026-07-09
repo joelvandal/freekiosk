@@ -20,6 +20,15 @@ import java.net.URL
 
 class UpdateModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
+    companion object {
+        // GitHub repo that hosts the release APKs the app self-updates from.
+        // Point this at your own repo. For a PRIVATE repo, also set FREEKIOSK_UPDATE_TOKEN
+        // in android/gradle.properties (see build.gradle) so the API check and the APK
+        // download are authorized.
+        private const val GITHUB_OWNER = "joelvandal"
+        private const val GITHUB_REPO = "freekiosk"
+    }
+
     override fun getName(): String {
         return "UpdateModule"
     }
@@ -87,10 +96,11 @@ class UpdateModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
         }
         Thread {
             try {
+                val repo = "$GITHUB_OWNER/$GITHUB_REPO"
                 val apiUrl = if (includeBeta) {
-                    "https://api.github.com/repos/rushb-fr/freekiosk/releases?per_page=10"
+                    "https://api.github.com/repos/$repo/releases?per_page=10"
                 } else {
-                    "https://api.github.com/repos/rushb-fr/freekiosk/releases/latest"
+                    "https://api.github.com/repos/$repo/releases/latest"
                 }
                 
                 android.util.Log.d("UpdateModule", "Checking updates: includeBeta=$includeBeta, url=$apiUrl")
@@ -100,6 +110,10 @@ class UpdateModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
                 connection.requestMethod = "GET"
                 connection.connectTimeout = 10000
                 connection.readTimeout = 10000
+                connection.setRequestProperty("Accept", "application/vnd.github+json")
+                if (BuildConfig.UPDATE_TOKEN.isNotEmpty()) {
+                    connection.setRequestProperty("Authorization", "Bearer ${BuildConfig.UPDATE_TOKEN}")
+                }
                 
                 val responseCode = connection.responseCode
                 if (responseCode == HttpURLConnection.HTTP_OK) {
@@ -143,7 +157,7 @@ class UpdateModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
                     
                     // Fallback to constructed URL if no asset found (should not happen)
                     if (apkUrl.isEmpty()) {
-                        apkUrl = "https://github.com/rushb-fr/freekiosk/releases/download/v${tagName}/FreeKiosk-v${tagName}.apk"
+                        apkUrl = "https://github.com/$GITHUB_OWNER/$GITHUB_REPO/releases/download/v${tagName}/FreeKiosk-v${tagName}.apk"
                         android.util.Log.w("UpdateModule", "No APK asset found, using fallback URL")
                     }
                     
@@ -267,6 +281,10 @@ class UpdateModule(reactContext: ReactApplicationContext) : ReactContextBaseJava
                 setAllowedOverRoaming(true)
                 addRequestHeader("User-Agent", "FreeKiosk-Updater")
                 addRequestHeader("Accept", "application/vnd.android.package-archive")
+                // Authorize the download for a private releases repo (no-op when empty).
+                if (BuildConfig.UPDATE_TOKEN.isNotEmpty()) {
+                    addRequestHeader("Authorization", "Bearer ${BuildConfig.UPDATE_TOKEN}")
+                }
             }
             
             android.util.Log.d("UpdateModule", "Download request configured for file: $fileName")
