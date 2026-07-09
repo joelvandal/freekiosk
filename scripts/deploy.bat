@@ -185,7 +185,7 @@ if defined KIOSK_PASS set "CFG=!CFG! --es basic_auth_password "'!KIOSK_PASS!'""
 if defined KIOSK_URL  echo ==^>   url: !KIOSK_URL!
 if defined KIOSK_PIN  echo ==^>   pin: (set)
 if defined KIOSK_USER echo ==^>   auth username: !KIOSK_USER!
-%ADB% shell am start -n com.freekiosk/.MainActivity!CFG! --ez kiosk_enabled true --es auto_relaunch "true"
+%ADB% shell am start -n com.freekiosk/.MainActivity!CFG! --ez kiosk_enabled true --es auto_relaunch "true" --es default_launcher "true"
 
 echo ==^> Removing software navigation bar (ROOTED panels only; skipped otherwise)
 %ADB% root %RQ%

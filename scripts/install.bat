@@ -208,7 +208,7 @@ set "AUTH="
 if defined KIOSK_USER set "AUTH=!AUTH! --es basic_auth_username "'!KIOSK_USER!'""
 if defined KIOSK_PASS set "AUTH=!AUTH! --es basic_auth_password "'!KIOSK_PASS!'""
 if defined KIOSK_USER echo ==^> Website auth username: !KIOSK_USER!
-%ADB% shell am start -n com.freekiosk/.MainActivity --es url "'%KIOSK_URL%'" --es pin "'%KIOSK_PIN%'"!AUTH! --ez kiosk_enabled true --es auto_relaunch "true"
+%ADB% shell am start -n com.freekiosk/.MainActivity --es url "'%KIOSK_URL%'" --es pin "'%KIOSK_PIN%'"!AUTH! --ez kiosk_enabled true --es auto_relaunch "true" --es default_launcher "true"
 
 echo ==^> Removing software navigation bar (ROOTED panels only; skipped otherwise)
 echo     qemu.hw.mainkeys=1 tells Android there are hardware keys, so the OS never
