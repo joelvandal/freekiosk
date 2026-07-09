@@ -92,6 +92,8 @@ release-builds/
 *.apk
 *.aab
 !app-release.apk
+# Build output staged by scripts/install.bat|install.sh --build (release APK + metadata)
+/android/app/release/
 android/gradle.properties
 launch.md
 ROADMAP.md
