@@ -12,8 +12,8 @@ REM       and (on ROOTED panels) removes the software navigation bar.
 REM    Auto-recovers from a signature mismatch on ROOTED panels.
 REM
 REM  Usage: deploy.bat [device-serial] [--url URL] [--pin PIN] [--username U] [--password P] [--debug]
-REM    --url       Kiosk URL (default below). Quote URLs that contain & or ?.
-REM    --pin       Kiosk PIN / password (default: 1234).
+REM    --url       Kiosk URL to set. If omitted, the device's CURRENT url is kept.
+REM    --pin       Kiosk PIN/password to set. If omitted, the CURRENT pin is kept.
 REM    --username  Website (HTTP Basic) auth username (optional).
 REM    --password  Website (HTTP Basic) auth password (optional; stored in Keychain).
 REM    --debug     Verbose: trace commands, show hidden errors, dump diagnostics.
@@ -30,10 +30,10 @@ set "APK=%TEMP%\FreeKiosk-latest.apk"
 set "OUT=%TEMP%\fk_deploy.txt"
 
 REM ---- Defaults ----
+REM No default for URL / PIN / username / password: only the options you pass are
+REM applied, so a bare re-deploy (APK update) never overwrites the device's config.
 set "DEBUG="
 set "SERIAL="
-set "KIOSK_URL=https://kiosk.dev.sirsteward.com"
-set "KIOSK_PIN=1234"
 
 REM ---- Parse args from %* (for/f splits on spaces only, keeps '=' in URLs) ----
 set "ARGS=%*"
@@ -174,12 +174,18 @@ echo ==^> Enabling auto date/time (NTP) and auto timezone
 %ADB% shell settings put global ntp_server time.google.com
 %ADB% shell setprop persist.sys.timezone "America/Montreal"
 
-echo ==^> Preconfiguring kiosk URL: !KIOSK_URL!
-set "AUTH="
-if defined KIOSK_USER set "AUTH=!AUTH! --es basic_auth_username "'!KIOSK_USER!'""
-if defined KIOSK_PASS set "AUTH=!AUTH! --es basic_auth_password "'!KIOSK_PASS!'""
-if defined KIOSK_USER echo ==^> Website auth username: !KIOSK_USER!
-%ADB% shell am start -n com.freekiosk/.MainActivity --es url "'%KIOSK_URL%'" --es pin "'%KIOSK_PIN%'"!AUTH! --ez kiosk_enabled true --es auto_relaunch "true"
+echo ==^> Ensuring kiosk mode (only the options you passed are changed)
+REM Build the config extras from the provided options only. Omitted options are not
+REM sent, so the device keeps its current url / pin / credentials.
+set "CFG="
+if defined KIOSK_URL  set "CFG=!CFG! --es url "'!KIOSK_URL!'""
+if defined KIOSK_PIN  set "CFG=!CFG! --es pin "'!KIOSK_PIN!'""
+if defined KIOSK_USER set "CFG=!CFG! --es basic_auth_username "'!KIOSK_USER!'""
+if defined KIOSK_PASS set "CFG=!CFG! --es basic_auth_password "'!KIOSK_PASS!'""
+if defined KIOSK_URL  echo ==^>   url: !KIOSK_URL!
+if defined KIOSK_PIN  echo ==^>   pin: (set)
+if defined KIOSK_USER echo ==^>   auth username: !KIOSK_USER!
+%ADB% shell am start -n com.freekiosk/.MainActivity!CFG! --ez kiosk_enabled true --es auto_relaunch "true"
 
 echo ==^> Removing software navigation bar (ROOTED panels only; skipped otherwise)
 %ADB% root %RQ%
