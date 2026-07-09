@@ -21,6 +21,8 @@ import { WebView } from 'react-native-webview';
 import type { WebViewErrorEvent, ShouldStartLoadRequest, WebViewRenderProcessGoneEvent } from 'react-native-webview/lib/WebViewTypes';
 import { useNavigation } from '@react-navigation/native';
 import PrintModule from '../utils/PrintModule';
+import DirectPrint from '../utils/DirectPrintModule';
+import type { PrintSpec } from '../types/directPrinter';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/AppNavigator';
 
@@ -42,6 +44,7 @@ interface WebViewComponentProps {
   pdfViewerEnabled?: boolean; // Enable inline PDF viewing via PDF.js
   printEnabled?: boolean; // Enable window.print() interception for native printing
   printPaperSize?: string; // Default paper size: 'A4' | 'A5' | 'A3' | 'LETTER' | 'LEGAL'
+  directPrintEnabled?: boolean; // When true, window.print() goes to ESC/POS printer instead of Android PrintManager
   zoomLevel?: number; // Zoom level percentage (50-200, default 100)
   zoomMode?: string; // 'standard' (CSS zoom) | 'fit' (viewport reflow, #188)
   disableUserZoom?: boolean; // Prevent pinch-to-zoom and double-tap zoom
@@ -81,6 +84,7 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
   pdfViewerEnabled = false,
   printEnabled = false,
   printPaperSize = 'A4',
+  directPrintEnabled = false,
   zoomLevel = 100,
   zoomMode = 'standard',
   disableUserZoom = false,
@@ -361,15 +365,41 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
       console.error('[FreeKiosk] localStorage FAILED:', e);
     }
 
-    // Intercept window.print() to use native Android print (only when printing is enabled)
+    // Intercept window.print() to use native printing (only when printing is enabled)
     ${printEnabled ? `
     window.print = function() {
       window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'PRINT_REQUEST',
+        type: '${directPrintEnabled ? 'DIRECT_PRINT_BITMAP' : 'PRINT_REQUEST'}',
         title: document.title || '',
         paperSize: '${printPaperSize}'
       }));
     };
+    ${directPrintEnabled ? `
+    // Direct ESC/POS print API for thermal printers (TM-T88 style)
+    window.freekiosk = window.freekiosk || {};
+    window.freekiosk.print = function(spec) {
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'DIRECT_PRINT_API',
+          spec: spec || {}
+        }));
+      } catch (e) {
+        console.error('[freekiosk.print] failed', e);
+      }
+    };
+    window.freekiosk.cutPaper = function(mode) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'DIRECT_PRINT_API',
+        spec: { blocks: [{ type: 'cut', mode: mode || 'full' }] }
+      }));
+    };
+    window.freekiosk.openCashDrawer = function(pin) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'DIRECT_PRINT_API',
+        spec: { blocks: [{ type: 'drawer', pin: pin || 2 }] }
+      }));
+    };
+    ` : ''}
     ` : '// Printing disabled - window.print() not intercepted'}
 
     // Throttling pour éviter le flood de messages (critique sur Fire OS)
@@ -738,10 +768,21 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
               .catch((err: any) => console.error('[WebView] TTS getVoices failed:', err));
           }
         } else if (data.type === 'PRINT_REQUEST') {
-          // Handle print request from window.print()
+          // Handle print request from window.print() — Android PrintManager path
           PrintModule.printWebView(data.title || 'FreeKiosk Print', data.paperSize || 'A4')
             .then(() => console.log('[WebView] Print job started'))
             .catch((err: any) => console.error('[WebView] Print failed:', err));
+        } else if (data.type === 'DIRECT_PRINT_BITMAP') {
+          // Direct ESC/POS path: capture WebView and send as raster
+          DirectPrint.printWebViewBitmap()
+            .then(() => console.log('[WebView] Direct print bitmap sent'))
+            .catch((err: any) => console.error('[WebView] Direct print failed:', err));
+        } else if (data.type === 'DIRECT_PRINT_API') {
+          // Structured ESC/POS document from window.freekiosk.print({...})
+          const spec = (data.spec || {}) as PrintSpec;
+          DirectPrint.printSpec(spec)
+            .then(() => console.log('[WebView] Direct print spec sent'))
+            .catch((err: any) => console.error('[WebView] Direct print spec failed:', err));
         } else if (data.type === 'PDF_VIEWER_CLOSE') {
           // User closed PDF viewer, go back to previous page
           if (webViewRef.current) {
