@@ -149,6 +149,13 @@ echo ==^> Granting WRITE_SECURE_SETTINGS to %PKG%
 echo ==^> Granting WRITE_SETTINGS to %PKG% (app-controlled system-bar hiding)
 %ADB% shell appops set %PKG% android:write_settings allow
 
+echo ==^> Granting camera + microphone permissions to %PKG%
+%ADB% shell pm grant %PKG% android.permission.CAMERA %Q%
+%ADB% shell pm grant %PKG% android.permission.RECORD_AUDIO %Q%
+
+echo ==^> Setting FreeKiosk as the default Home / launcher (no "Select a Home app" prompt)
+%ADB% shell cmd package set-home-activity com.freekiosk/com.freekiosk.MainActivity %Q%
+
 echo ==^> Enabling auto date/time (NTP) and auto timezone
 %ADB% shell settings put global auto_time 1
 %ADB% shell settings put global auto_time_zone 1
