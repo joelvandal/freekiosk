@@ -51,12 +51,25 @@ blocking, and the rest of the hardening APIs.
 ```
 adb shell pm grant com.freekiosk android.permission.WRITE_SECURE_SETTINGS
 adb shell appops set com.freekiosk android:write_settings allow
+adb shell pm grant com.freekiosk android.permission.CAMERA
+adb shell pm grant com.freekiosk android.permission.RECORD_AUDIO
 ```
 
 - **WRITE_SECURE_SETTINGS** — lets FreeKiosk change secure/global settings (rotation lock,
   accessibility auto-enable, and the immersive `policy_control` fallback).
 - **WRITE_SETTINGS** — lets the app write `Settings.System` (used by the *Hide Navigation
   Bar* option to set OEM keys such as `hide_system_bar` on panels that honor them).
+- **CAMERA / RECORD_AUDIO** — pre-granted so the app never shows the *"Allow FreeKiosk to
+  take pictures and record video"* runtime prompt on a locked kiosk.
+
+### Default Home / launcher (no "Select a Home app" prompt)
+
+After a clean reset the device has no default launcher, so it asks *"Select a Home app"*.
+Pin FreeKiosk's main activity as the persistent Home:
+
+```
+adb shell cmd package set-home-activity com.freekiosk/com.freekiosk.MainActivity
+```
 
 ## 4. Clock & timezone (recommended)
 
