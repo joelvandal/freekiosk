@@ -183,8 +183,13 @@ ways out:
   ```
   Never commit that file or the keystore.
 
-- **Clean reset to the local (debug-signed) build** — one-time, requires **root**. Removes
-  Device Owner so the old app can be uninstalled, then reprovision:
+- **Clean reset to the local (debug-signed) build** — requires **root**. Removes Device
+  Owner so the old app can be uninstalled, then reprovisions. **The install scripts do this
+  automatically**: when the install fails with `INSTALL_FAILED_UPDATE_INCOMPATIBLE`, they run
+  `adb root`, delete the Device Owner config, reboot, wait for boot, uninstall, and reinstall
+  — no manual steps. Just run `scripts\install.bat` (or `scripts/install.sh`). After the
+  first reset, future local builds install in place (same debug key), so the reset does not
+  repeat. The equivalent manual sequence, for reference:
   ```
   adb root
   adb shell "rm -f /data/system/device_owner_2.xml /data/system/device_owner.xml /data/system/device_policies.xml"
@@ -193,7 +198,6 @@ ways out:
   adb uninstall com.freekiosk
   scripts\install.bat        # or scripts/install.sh
   ```
-  After this, all future local builds install in place (same debug key) — no repeat needed.
 
 > The `dpm remove-active-admin` line at the start of the scripts prints a Java
 > `SecurityException` when the app is already Device Owner (a DO can't be removed that way
