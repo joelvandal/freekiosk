@@ -402,9 +402,12 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
     ` : ''}
     ` : '// Printing disabled - window.print() not intercepted'}
 
-    // FreeKiosk audio output control.
+    // FreeKiosk audio control.
     //   await window.freekiosk.audio.get()               -> { output, forced, headsetPlugged }
     //   await window.freekiosk.audio.set('speaker'|'jack'|'both'|'auto')
+    //   await window.freekiosk.audio.getVolume()          -> { volume, volumeRaw, volumeMax, isMuted, ... }
+    //   await window.freekiosk.audio.setVolume(0..100)
+    //   await window.freekiosk.audio.setMuted(true|false)
     window.freekiosk = window.freekiosk || {};
     (function() {
       var _fkAudioPending = {};
@@ -415,20 +418,24 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
         delete _fkAudioPending[id];
         if (err) { p.reject(new Error(err)); } else { p.resolve(result); }
       };
-      function fkAudioCall(action, mode) {
+      function fkAudioCall(action, extra) {
         return new Promise(function(resolve, reject) {
           var id = 'fa' + (++_fkAudioSeq);
           _fkAudioPending[id] = { resolve: resolve, reject: reject };
-          try {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'AUDIO_API', action: action, mode: mode || null, requestId: id
-            }));
-          } catch (e) { delete _fkAudioPending[id]; reject(e); }
+          var msg = { type: 'AUDIO_API', action: action, requestId: id };
+          if (extra) { for (var k in extra) { if (extra.hasOwnProperty(k)) msg[k] = extra[k]; } }
+          try { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); }
+          catch (e) { delete _fkAudioPending[id]; reject(e); }
         });
       }
       window.freekiosk.audio = {
+        // Output routing
         get: function() { return fkAudioCall('get'); },
-        set: function(mode) { return fkAudioCall('set', mode); }
+        set: function(mode) { return fkAudioCall('set', { mode: mode }); },
+        // Volume (0-100) and mute
+        getVolume: function() { return fkAudioCall('getVolume'); },
+        setVolume: function(percent) { return fkAudioCall('setVolume', { value: percent }); },
+        setMuted: function(muted) { return fkAudioCall('setMuted', { value: !!muted }); }
       };
     })();
 
@@ -825,9 +832,15 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
               `window.__fkAudioResolve && window.__fkAudioResolve(${rid}, ${payload}, ${errStr}); true;`
             );
           };
-          const req = data.action === 'set'
-            ? AudioControl.setMediaOutput(String(data.mode || 'auto'))
-            : AudioControl.getMediaOutput();
+          let req;
+          switch (data.action) {
+            case 'set':       req = AudioControl.setMediaOutput(String(data.mode || 'auto')); break;
+            case 'getVolume': req = AudioControl.getAudioInfo(); break;
+            case 'setVolume': req = AudioControl.setVolume(Math.max(0, Math.min(100, Math.round(Number(data.value) || 0)))); break;
+            case 'setMuted':  req = AudioControl.setMuted(!!data.value); break;
+            case 'get':
+            default:          req = AudioControl.getMediaOutput(); break;
+          }
           req.then((res: any) => respond(res, null))
              .catch((e: any) => respond(null, e?.message || 'audio error'));
         } else if (data.type === 'PDF_VIEWER_CLOSE') {
