@@ -4,6 +4,13 @@ import { ScreenScheduleRule } from '../types/screenScheduler';
 import { DashboardTile } from '../types/dashboard';
 import { ManagedApp } from '../types/managedApps';
 import { MediaItem, MediaFitMode } from '../types/mediaPlayer';
+import {
+  DirectPrinterConfig,
+  DirectPrinterConnection,
+  DirectPrinterCharset,
+  DirectPrinterCutMode,
+  DEFAULT_DIRECT_PRINTER_CONFIG,
+} from '../types/directPrinter';
 import { saveSecureApiKey, getSecureApiKey, clearSecureApiKey, clearSecureMqttPassword } from './secureStorage';
 
 const KEYS = {
@@ -114,6 +121,18 @@ const KEYS = {
   // Printing
   PRINT_ENABLED: '@kiosk_print_enabled',
   PRINT_PAPER_SIZE: '@kiosk_print_paper_size',
+  // Direct printing (ESC/POS over TCP or USB — bypasses Android PrintManager)
+  DIRECT_PRINT_ENABLED: '@kiosk_direct_print_enabled',
+  DIRECT_PRINT_CONNECTION: '@kiosk_direct_print_connection',
+  DIRECT_PRINT_TCP_HOST: '@kiosk_direct_print_tcp_host',
+  DIRECT_PRINT_TCP_PORT: '@kiosk_direct_print_tcp_port',
+  DIRECT_PRINT_TCP_TIMEOUT: '@kiosk_direct_print_tcp_timeout',
+  DIRECT_PRINT_USB_VENDOR_ID: '@kiosk_direct_print_usb_vid',
+  DIRECT_PRINT_USB_PRODUCT_ID: '@kiosk_direct_print_usb_pid',
+  DIRECT_PRINT_PAPER_WIDTH: '@kiosk_direct_print_paper_width',
+  DIRECT_PRINT_AUTO_CUT: '@kiosk_direct_print_auto_cut',
+  DIRECT_PRINT_CUT_MODE: '@kiosk_direct_print_cut_mode',
+  DIRECT_PRINT_CHARSET: '@kiosk_direct_print_charset',
   // WebView Zoom Level
   WEBVIEW_ZOOM_LEVEL: '@kiosk_webview_zoom_level',
   // WebView Zoom Mode ('standard' = CSS zoom | 'fit' = viewport reflow, #188)
@@ -2105,6 +2124,259 @@ export const StorageService = {
       console.error('Error getting print paper size:', error);
       return 'A4';
     }
+  },
+
+  // ============ DIRECT PRINTING (ESC/POS) ============
+
+  saveDirectPrintEnabled: async (value: boolean): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_ENABLED, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving direct print enabled:', error);
+    }
+  },
+
+  getDirectPrintEnabled: async (): Promise<boolean> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_ENABLED);
+      return value ? JSON.parse(value) : DEFAULT_DIRECT_PRINTER_CONFIG.enabled;
+    } catch (error) {
+      console.error('Error getting direct print enabled:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.enabled;
+    }
+  },
+
+  saveDirectPrintConnection: async (value: DirectPrinterConnection): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_CONNECTION, value);
+    } catch (error) {
+      console.error('Error saving direct print connection:', error);
+    }
+  },
+
+  getDirectPrintConnection: async (): Promise<DirectPrinterConnection> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_CONNECTION);
+      return value === 'usb' ? 'usb' : 'tcp';
+    } catch (error) {
+      console.error('Error getting direct print connection:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.connection;
+    }
+  },
+
+  saveDirectPrintTcpHost: async (value: string): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_TCP_HOST, value);
+    } catch (error) {
+      console.error('Error saving direct print TCP host:', error);
+    }
+  },
+
+  getDirectPrintTcpHost: async (): Promise<string> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_TCP_HOST);
+      return value || DEFAULT_DIRECT_PRINTER_CONFIG.tcpHost;
+    } catch (error) {
+      console.error('Error getting direct print TCP host:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.tcpHost;
+    }
+  },
+
+  saveDirectPrintTcpPort: async (value: number): Promise<void> => {
+    // Reject invalid ports rather than silently storing them — prevents
+    // accidentally persisting 0/NaN and then dialing "host:0" later.
+    if (!Number.isFinite(value) || value <= 0 || value >= 65536) {
+      console.warn('Refusing to save invalid TCP port:', value);
+      return;
+    }
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_TCP_PORT, JSON.stringify(Math.trunc(value)));
+    } catch (error) {
+      console.error('Error saving direct print TCP port:', error);
+    }
+  },
+
+  getDirectPrintTcpPort: async (): Promise<number> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_TCP_PORT);
+      if (!value) return DEFAULT_DIRECT_PRINTER_CONFIG.tcpPort;
+      const parsed = JSON.parse(value);
+      return Number.isFinite(parsed) && parsed > 0 && parsed < 65536
+        ? Math.trunc(parsed)
+        : DEFAULT_DIRECT_PRINTER_CONFIG.tcpPort;
+    } catch (error) {
+      console.error('Error getting direct print TCP port:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.tcpPort;
+    }
+  },
+
+  saveDirectPrintTcpTimeout: async (value: number): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_TCP_TIMEOUT, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving direct print TCP timeout:', error);
+    }
+  },
+
+  getDirectPrintTcpTimeout: async (): Promise<number> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_TCP_TIMEOUT);
+      return value ? JSON.parse(value) : DEFAULT_DIRECT_PRINTER_CONFIG.tcpTimeoutMs;
+    } catch (error) {
+      console.error('Error getting direct print TCP timeout:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.tcpTimeoutMs;
+    }
+  },
+
+  saveDirectPrintUsbIds: async (vendorId: number, productId: number): Promise<void> => {
+    try {
+      await Promise.all([
+        AsyncStorage.setItem(KEYS.DIRECT_PRINT_USB_VENDOR_ID, JSON.stringify(vendorId)),
+        AsyncStorage.setItem(KEYS.DIRECT_PRINT_USB_PRODUCT_ID, JSON.stringify(productId)),
+      ]);
+    } catch (error) {
+      console.error('Error saving direct print USB IDs:', error);
+    }
+  },
+
+  getDirectPrintUsbVendorId: async (): Promise<number> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_USB_VENDOR_ID);
+      return value ? JSON.parse(value) : DEFAULT_DIRECT_PRINTER_CONFIG.usbVendorId;
+    } catch (error) {
+      console.error('Error getting direct print USB vendor ID:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.usbVendorId;
+    }
+  },
+
+  getDirectPrintUsbProductId: async (): Promise<number> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_USB_PRODUCT_ID);
+      return value ? JSON.parse(value) : DEFAULT_DIRECT_PRINTER_CONFIG.usbProductId;
+    } catch (error) {
+      console.error('Error getting direct print USB product ID:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.usbProductId;
+    }
+  },
+
+  saveDirectPrintPaperWidth: async (value: number): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_PAPER_WIDTH, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving direct print paper width:', error);
+    }
+  },
+
+  getDirectPrintPaperWidth: async (): Promise<number> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_PAPER_WIDTH);
+      return value ? JSON.parse(value) : DEFAULT_DIRECT_PRINTER_CONFIG.paperWidthDots;
+    } catch (error) {
+      console.error('Error getting direct print paper width:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.paperWidthDots;
+    }
+  },
+
+  saveDirectPrintAutoCut: async (value: boolean): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_AUTO_CUT, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving direct print auto cut:', error);
+    }
+  },
+
+  getDirectPrintAutoCut: async (): Promise<boolean> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_AUTO_CUT);
+      return value ? JSON.parse(value) : DEFAULT_DIRECT_PRINTER_CONFIG.autoCut;
+    } catch (error) {
+      console.error('Error getting direct print auto cut:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.autoCut;
+    }
+  },
+
+  saveDirectPrintCutMode: async (value: DirectPrinterCutMode): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_CUT_MODE, value);
+    } catch (error) {
+      console.error('Error saving direct print cut mode:', error);
+    }
+  },
+
+  getDirectPrintCutMode: async (): Promise<DirectPrinterCutMode> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_CUT_MODE);
+      return value === 'partial' ? 'partial' : 'full';
+    } catch (error) {
+      console.error('Error getting direct print cut mode:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.cutMode;
+    }
+  },
+
+  saveDirectPrintCharset: async (value: DirectPrinterCharset): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.DIRECT_PRINT_CHARSET, value);
+    } catch (error) {
+      console.error('Error saving direct print charset:', error);
+    }
+  },
+
+  getDirectPrintCharset: async (): Promise<DirectPrinterCharset> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.DIRECT_PRINT_CHARSET);
+      if (value === 'cp850' || value === 'cp858' || value === 'cp1252' || value === 'cp437') {
+        return value;
+      }
+      return DEFAULT_DIRECT_PRINTER_CONFIG.characterSet;
+    } catch (error) {
+      console.error('Error getting direct print charset:', error);
+      return DEFAULT_DIRECT_PRINTER_CONFIG.characterSet;
+    }
+  },
+
+  /**
+   * Load the full DirectPrinterConfig in a single call. Used by the native
+   * bridge wrapper so callers don't have to thread parameters through.
+   */
+  getDirectPrinterConfig: async (): Promise<DirectPrinterConfig> => {
+    const [
+      enabled,
+      connection,
+      tcpHost,
+      tcpPort,
+      tcpTimeoutMs,
+      usbVendorId,
+      usbProductId,
+      paperWidthDots,
+      autoCut,
+      cutMode,
+      characterSet,
+    ] = await Promise.all([
+      StorageService.getDirectPrintEnabled(),
+      StorageService.getDirectPrintConnection(),
+      StorageService.getDirectPrintTcpHost(),
+      StorageService.getDirectPrintTcpPort(),
+      StorageService.getDirectPrintTcpTimeout(),
+      StorageService.getDirectPrintUsbVendorId(),
+      StorageService.getDirectPrintUsbProductId(),
+      StorageService.getDirectPrintPaperWidth(),
+      StorageService.getDirectPrintAutoCut(),
+      StorageService.getDirectPrintCutMode(),
+      StorageService.getDirectPrintCharset(),
+    ]);
+    return {
+      enabled,
+      connection,
+      tcpHost,
+      tcpPort,
+      tcpTimeoutMs,
+      usbVendorId,
+      usbProductId,
+      paperWidthDots,
+      autoCut,
+      cutMode,
+      characterSet,
+    };
   },
 
   // ============ WebView Zoom Level ============

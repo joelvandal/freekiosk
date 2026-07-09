@@ -171,6 +171,8 @@ export type IconName =
   | 'folder'
   | 'folder-open-outline'
   | 'file-document-outline'
+  // Printer
+  | 'file-document-outline'
   // Network & MQTT
   | 'lan-connect'
   | 'lan-disconnect'

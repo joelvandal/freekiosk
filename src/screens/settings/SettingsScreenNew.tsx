@@ -40,6 +40,7 @@ import {
   SecurityTab,
   AdvancedTab,
   DashboardTab,
+  PrinterTab,
 } from './tabs';
 import { RecurringEventEditor, OneTimeEventEditor } from '../../components/settings';
 import ScreenScheduleRuleEditor from '../../components/settings/ScreenScheduleRuleEditor';
@@ -66,6 +67,7 @@ const TABS: { id: string; label: string; icon: IconName }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: 'view-dashboard' },
   { id: 'display', label: 'Display', icon: 'monitor' },
   { id: 'security', label: 'Security', icon: 'shield-lock' },
+  { id: 'printer', label: 'Printer', icon: 'printer' },
   { id: 'advanced', label: 'Advanced', icon: 'cog' },
 ];
 
@@ -1820,10 +1822,6 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
             onAutoReloadChange={setAutoReload}
             pdfViewerEnabled={pdfViewerEnabled}
             onPdfViewerEnabledChange={setPdfViewerEnabled}
-            printEnabled={printEnabled}
-            onPrintEnabledChange={setPrintEnabled}
-            printPaperSize={printPaperSize}
-            onPrintPaperSizeChange={setPrintPaperSize}
             urlRotationEnabled={urlRotationEnabled}
             onUrlRotationEnabledChange={setUrlRotationEnabled}
             urlRotationList={urlRotationList}
@@ -2079,6 +2077,16 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
           />
         );
       
+      case 'printer':
+        return (
+          <PrinterTab
+            printEnabled={printEnabled}
+            onPrintEnabledChange={setPrintEnabled}
+            printPaperSize={printPaperSize}
+            onPrintPaperSizeChange={setPrintPaperSize}
+          />
+        );
+
       case 'advanced':
         return (
           <AdvancedTab

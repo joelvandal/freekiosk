@@ -78,13 +78,7 @@ interface GeneralTabProps {
   // PDF Viewer (webview only)
   pdfViewerEnabled: boolean;
   onPdfViewerEnabledChange: (value: boolean) => void;
-  
-  // Printing (webview only)
-  printEnabled: boolean;
-  onPrintEnabledChange: (value: boolean) => void;
-  printPaperSize: string;
-  onPrintPaperSizeChange: (value: string) => void;
-  
+
   // URL Rotation (webview only)
   urlRotationEnabled: boolean;
   onUrlRotationEnabledChange: (value: boolean) => void;
@@ -192,10 +186,6 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
   onAutoReloadChange,
   pdfViewerEnabled,
   onPdfViewerEnabledChange,
-  printEnabled,
-  onPrintEnabledChange,
-  printPaperSize,
-  onPrintPaperSizeChange,
   urlRotationEnabled,
   onUrlRotationEnabledChange,
   urlRotationList,
@@ -939,46 +929,6 @@ const GeneralTab: React.FC<GeneralTabProps> = ({
               <Text style={styles.infoText}>
                 {'📄 PDF links will open in a built-in viewer with page navigation and zoom controls.\n\n'}
                 {'⚠️ Enabling this feature allows file access in the WebView for the local PDF renderer. Only enable if your kiosk website links to PDF files.'}
-              </Text>
-            </SettingsInfoBox>
-          )}
-        </SettingsSection>
-      )}
-      
-      {/* Printing - WebView only */}
-      {displayMode === 'webview' && (
-        <SettingsSection title="Printing" icon="printer">
-          <SettingsSwitch
-            label="Allow Printing"
-            hint="Enable window.print() support for web pages (label printers, receipts, etc.)"
-            value={printEnabled}
-            onValueChange={onPrintEnabledChange}
-          />
-          
-          {printEnabled && (
-            <>
-              <View style={styles.rotationSpacer} />
-              <SettingsRadioGroup
-                label="Default Paper Size"
-                options={[
-                  { value: 'A4',     label: 'A4 (210 × 297 mm)' },
-                  { value: 'A5',     label: 'A5 (148 × 210 mm)' },
-                  { value: 'A3',     label: 'A3 (297 × 420 mm)' },
-                  { value: 'LETTER', label: 'Letter (8.5 × 11 in)' },
-                  { value: 'LEGAL',  label: 'Legal (8.5 × 14 in)' },
-                ]}
-                value={printPaperSize}
-                onValueChange={onPrintPaperSizeChange}
-              />
-            </>
-          )}
-
-          {printEnabled && (
-            <SettingsInfoBox variant="info">
-              <Text style={styles.infoText}>
-                {'🖨️ Web pages can trigger the Android print dialog via window.print().\n\n'}
-                {'In Device Owner (kiosk) mode, the system print spooler is automatically whitelisted to allow the print dialog to appear.\n\n'}
-                {'Supports WiFi, Bluetooth, USB printers, and Save as PDF.'}
               </Text>
             </SettingsInfoBox>
           )}
