@@ -1,22 +1,25 @@
 @echo off
 REM Provision a FreeKiosk tablet over ADB:
 REM   - install the release APK
+REM       * auto-recovers from a signature mismatch on ROOTED panels
+REM         (removes Device Owner, reboots, uninstalls, reinstalls)
 REM   - set FreeKiosk as Device Owner
 REM   - grant WRITE_SECURE_SETTINGS and WRITE_SETTINGS
 REM   - set time/timezone and preconfigure the kiosk URL
-REM   - (ROOTED panels only) remove the software navigation bar permanently
+REM   - (ROOTED panels) remove the software navigation bar permanently
 REM
 REM Usage: install.bat [device-serial]
 REM        If no serial is given, the only connected device is used.
 REM
 REM See docs/securing-the-tablet.md for the full explanation of each step.
 
-setlocal
+setlocal enabledelayedexpansion
 
 set "APK_DIR=%~dp0..\android\app\release"
 set "APK=app-release.apk"
 set "PKG=com.freekiosk"
 set "ADMIN=%PKG%/.DeviceAdminReceiver"
+set "OUT=%TEMP%\fk_install.txt"
 
 if "%~1"=="" (
     set "ADB=adb"
@@ -30,16 +33,67 @@ echo ==^> Removing existing Device Admin (ignored if absent or already Device Ow
 %ADB% shell dpm remove-active-admin %ADMIN% 2>nul
 
 echo ==^> Installing %APK% (-d allows reinstalling over a higher versionCode)
-%ADB% install -r -d "%APK%"
-if errorlevel 1 goto :fail
+%ADB% install -r -d "%APK%" > "%OUT%" 2>&1
+type "%OUT%"
+findstr /C:"Success" "%OUT%" >nul && goto :installed
 
+REM Only a signature mismatch is auto-recoverable (and only on a rooted device).
+findstr /C:"INSTALL_FAILED_UPDATE_INCOMPATIBLE" "%OUT%" >nul || (
+    echo ==^> Install failed for a reason other than a signature mismatch.
+    goto :fail
+)
+
+echo.
+echo ==^> Signature mismatch: the installed app is Device Owner and signed with a
+echo     different key. Attempting an automatic clean reset ^(REQUIRES ROOT^)...
+echo.
+
+echo ==^> [reset] Switching adbd to root
+%ADB% root
+if errorlevel 1 (
+    echo ==^> 'adb root' failed -- cannot auto-remove Device Owner on a non-rooted device.
+    echo     Root the panel, or sign the build with the upload key. See docs/securing-the-tablet.md.
+    goto :fail
+)
+
+echo ==^> [reset] Removing Device Owner / device policies
+%ADB% shell "rm -f /data/system/device_owner_2.xml /data/system/device_owner.xml /data/system/device_policies.xml"
+
+echo ==^> [reset] Rebooting the device
+%ADB% reboot
+echo ==^> [reset] Waiting for the device to come back online...
+%ADB% wait-for-device
+
+echo ==^> [reset] Waiting for boot to complete...
+set /a _tries=0
+:waitboot
+set "BOOT="
+for /f "usebackq delims=" %%i in (`%ADB% shell getprop sys.boot_completed 2^>nul`) do set "BOOT=%%i"
+echo !BOOT! | findstr "1" >nul && goto :booted
+set /a _tries+=1
+if !_tries! GEQ 60 (echo ==^> Timed out waiting for boot. & goto :fail)
+timeout /t 3 /nobreak >nul
+goto :waitboot
+:booted
+REM let the framework settle after boot_completed
+timeout /t 3 /nobreak >nul
+
+echo ==^> [reset] Uninstalling the old app
+%ADB% uninstall %PKG%
+
+echo ==^> [reset] Reinstalling %APK%
+%ADB% install -r -d "%APK%" > "%OUT%" 2>&1
+type "%OUT%"
+findstr /C:"Success" "%OUT%" >nul || (echo ==^> Reinstall still failed. & goto :fail)
+
+:installed
 echo ==^> Setting Device Owner (%ADMIN%)
-%ADB% shell dpm set-device-owner %ADMIN%
-if errorlevel 1 goto :fail
+REM Non-fatal: if the app is already Device Owner from a previous in-place update, this
+REM prints an error and we keep going (the desired end state is already reached).
+%ADB% shell dpm set-device-owner %ADMIN% 2>nul
 
 echo ==^> Granting WRITE_SECURE_SETTINGS to %PKG%
 %ADB% shell pm grant %PKG% android.permission.WRITE_SECURE_SETTINGS
-if errorlevel 1 goto :fail
 
 echo ==^> Granting WRITE_SETTINGS to %PKG% (app-controlled system-bar hiding)
 %ADB% shell appops set %PKG% android:write_settings allow
@@ -52,7 +106,6 @@ echo ==^> Enabling auto date/time (NTP) and auto timezone
 
 echo ==^> Preconfiguring kiosk URL
 %ADB% shell am start -n com.freekiosk/.MainActivity --es url "https://kiosk.dev.sirsteward.com" --es pin "1234" --ez kiosk_enabled true --es auto_relaunch "true"
-if errorlevel 1 goto :fail
 
 echo ==^> Removing software navigation bar (ROOTED panels only; skipped otherwise)
 echo     qemu.hw.mainkeys=1 tells Android there are hardware keys, so the OS never
@@ -72,6 +125,7 @@ if errorlevel 1 (
 )
 
 echo ==^> Done
+del "%OUT%" 2>nul
 popd
 endlocal
 exit /b 0
@@ -79,6 +133,7 @@ exit /b 0
 :fail
 echo.
 echo ==^> FAILED
+del "%OUT%" 2>nul
 popd
 endlocal
 exit /b 1
