@@ -242,11 +242,20 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
             if (!privileged) {
                 if (normalized == "speaker") forceSpeakerRoute(am) else clearExplicitRoute(am)
             }
+            // RK3399 + es8316 (rooted): drive the external speaker-amp "spk con" GPIO so
+            // the speaker plays even with a jack inserted — the kernel mutes it on jack
+            // detect. Best-effort; no-op on other hardware or without root.
+            val speakerAmp = when (normalized) {
+                "speaker", "both" -> forceSpeakerAmp(true)
+                "jack", "headphones", "headset" -> forceSpeakerAmp(false)
+                else -> false
+            }
             mediaForce = if (normalized == "auto") null else normalized
             val map = Arguments.createMap()
             map.putBoolean("ok", true)
             map.putString("output", normalized)
             map.putBoolean("privileged", privileged) // true only if AudioSystem.setForceUse worked
+            map.putBoolean("speakerAmp", speakerAmp)  // true if the RK3399 spk-con GPIO was driven
             promise.resolve(map)
         } catch (e: Exception) {
             promise.reject("AUDIO_ERROR", e.message, e)
@@ -275,6 +284,39 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
             android.util.Log.d("AudioControl", "AudioSystem.setForceUse unavailable: ${e.message}")
             false
         }
+    }
+
+    // ── RK3399 + es8316 external speaker-amp mute GPIO ("spk con", GPIO0 pin 13) ──
+    // The kernel machine driver mutes the speaker when a jack is inserted. Forcing this
+    // bit low re-enables it. Uses the vendor 'io' register tool via root. Guarded to
+    // RK3399 so we never poke this physical address on other hardware.
+    private val IO_BIN = "/system/xbin/io"
+    private val GPIO0_DR = "0xFF720000"
+    private val SPK_CON_BIT = 0x2000L
+
+    private fun rootExec(cmd: String): String? {
+        return try {
+            val p = Runtime.getRuntime().exec(arrayOf("su", "-c", cmd))
+            val out = p.inputStream.bufferedReader().readText()
+            p.waitFor()
+            out
+        } catch (e: Exception) {
+            android.util.Log.d("AudioControl", "rootExec failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun forceSpeakerAmp(enable: Boolean): Boolean {
+        val dev = "${Build.DEVICE} ${Build.MODEL}".lowercase()
+        if (!dev.contains("rk3399")) return false
+        val read = rootExec("$IO_BIN -4 -r $GPIO0_DR") ?: return false
+        // "ff720000:  00002400" -> "00002400"
+        val hex = read.trim().substringAfterLast(' ').trim()
+        val cur = hex.toLongOrNull(16) ?: return false
+        val next = if (enable) cur and SPK_CON_BIT.inv() else cur or SPK_CON_BIT
+        rootExec("$IO_BIN -4 -w $GPIO0_DR 0x${next.toString(16)}")
+        android.util.Log.d("AudioControl", "forceSpeakerAmp($enable): 0x${cur.toString(16)} -> 0x${next.toString(16)}")
+        return true
     }
 
     private fun forceSpeakerRoute(am: AudioManager) {
