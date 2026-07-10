@@ -246,9 +246,10 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
             // the speaker plays even with a jack inserted — the kernel mutes it on jack
             // detect. Best-effort; no-op on other hardware or without root.
             val speakerAmp = when (normalized) {
-                "speaker", "both" -> forceSpeakerAmp(true)
-                "jack", "headphones", "headset" -> forceSpeakerAmp(false)
-                else -> false
+                "speaker" -> applySpeakerJack(speaker = true, jack = false)
+                "both" -> applySpeakerJack(speaker = true, jack = true)
+                "jack", "headphones", "headset" -> applySpeakerJack(speaker = false, jack = true)
+                else -> false // auto: leave to the kernel driver
             }
             mediaForce = if (normalized == "auto") null else normalized
             val map = Arguments.createMap()
@@ -286,13 +287,19 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
-    // ── RK3399 + es8316 external speaker-amp mute GPIO ("spk con", GPIO0 pin 13) ──
-    // The kernel machine driver mutes the speaker when a jack is inserted. Forcing this
-    // bit low re-enables it. Uses the vendor 'io' register tool via root. Guarded to
-    // RK3399 so we never poke this physical address on other hardware.
+    // ── RK3399 + es8316 amp-enable GPIOs ─────────────────────────────────────────
+    // The kernel machine driver mutes the external speaker when a jack is inserted.
+    // We drive the two amp GPIOs directly (via the vendor 'io' register tool over root)
+    // so the app can route media to speaker-only / jack-only / both even with a jack
+    // plugged. Validated on an RK3399/es8316 panel:
+    //   spk con  = GPIO0 (0xFF720000) bit 13 — raw LOW  = speaker ON
+    //   hp con   = GPIO4 (0xFF790000) bit 21 — raw HIGH = jack/HP ON
+    // Guarded to rk3399 so these physical-address writes never run on other hardware.
     private val IO_BIN = "/system/xbin/io"
     private val GPIO0_DR = "0xFF720000"
     private val SPK_CON_BIT = 0x2000L
+    private val GPIO4_DR = "0xFF790000"
+    private val HP_CON_BIT = 0x200000L
 
     private fun rootExec(cmd: String): String? {
         return try {
@@ -306,17 +313,26 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
         }
     }
 
-    private fun forceSpeakerAmp(enable: Boolean): Boolean {
-        val dev = "${Build.DEVICE} ${Build.MODEL}".lowercase()
-        if (!dev.contains("rk3399")) return false
-        val read = rootExec("$IO_BIN -4 -r $GPIO0_DR") ?: return false
+    /** Read-modify-write a single bit in a 32-bit register via the 'io' tool. */
+    private fun rmwBit(reg: String, bit: Long, set: Boolean): Boolean {
+        val read = rootExec("$IO_BIN -4 -r $reg") ?: return false
         // "ff720000:  00002400" -> "00002400"
         val hex = read.trim().substringAfterLast(' ').trim()
         val cur = hex.toLongOrNull(16) ?: return false
-        val next = if (enable) cur and SPK_CON_BIT.inv() else cur or SPK_CON_BIT
-        rootExec("$IO_BIN -4 -w $GPIO0_DR 0x${next.toString(16)}")
-        android.util.Log.d("AudioControl", "forceSpeakerAmp($enable): 0x${cur.toString(16)} -> 0x${next.toString(16)}")
+        val next = if (set) cur or bit else cur and bit.inv()
+        rootExec("$IO_BIN -4 -w $reg 0x${next.toString(16)}")
         return true
+    }
+
+    private fun applySpeakerJack(speaker: Boolean, jack: Boolean): Boolean {
+        val dev = "${Build.DEVICE} ${Build.MODEL}".lowercase()
+        if (!dev.contains("rk3399")) return false
+        // spk con raw LOW = speaker ON  -> set bit only to MUTE (i.e. set = !speaker)
+        val ok1 = rmwBit(GPIO0_DR, SPK_CON_BIT, set = !speaker)
+        // hp con raw HIGH = jack ON     -> set = jack
+        val ok2 = rmwBit(GPIO4_DR, HP_CON_BIT, set = jack)
+        android.util.Log.d("AudioControl", "applySpeakerJack(speaker=$speaker, jack=$jack) -> $ok1/$ok2")
+        return ok1 && ok2
     }
 
     private fun forceSpeakerRoute(am: AudioManager) {
