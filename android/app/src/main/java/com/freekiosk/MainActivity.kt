@@ -810,6 +810,30 @@ class MainActivity : ReactActivity() {
     }
   }
 
+  /**
+   * App-scoped OEM nav-bar hiding. applyOemNavBarHiding() removes the vendor system bar
+   * via PERSISTENT GLOBAL flags (hide_system_bar / navigationbar_is_min / policy_control /
+   * setStatusBarDisabled), so once we leave FreeKiosk the bar stays hidden everywhere —
+   * including Android Settings, leaving no way to navigate back. onStop() fires only when
+   * another activity/app fully covers us (Settings, a launched app — NOT the in-app PIN or
+   * Settings React screens, which share this activity), so it is the right moment to hand
+   * the bar back to the system. It is re-hidden on return by onWindowFocusChanged(true).
+   *
+   * Skipped in external-app kiosk mode: there the launched app is still part of the kiosk
+   * and must stay bar-less, so we keep the OEM hiding in effect across that onStop().
+   */
+  override fun onStop() {
+    super.onStop()
+    if (hideNavBarEnabled && !isExternalAppMode) {
+      try {
+        SystemBarHelper.applyHideNavigationBar(this, false)
+        DebugLog.d("MainActivity", "onStop — restored OEM system bar (left FreeKiosk)")
+      } catch (e: Exception) {
+        DebugLog.d("MainActivity", "onStop restore nav bar failed: ${e.message}")
+      }
+    }
+  }
+
   private fun hideSystemUI() {
     // Pour Android 11+ (API 30+), utiliser la nouvelle API WindowInsetsController
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {

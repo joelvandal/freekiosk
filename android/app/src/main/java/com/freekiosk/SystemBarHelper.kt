@@ -31,13 +31,22 @@ object SystemBarHelper {
 
     // Rockchip / generic OEM SystemUI broadcast actions. Names differ per firmware, so
     // we fire all of them; an action with no registered receiver is a harmless no-op.
+    //
+    // com.elclcd.(un)hidebar: confirmed on RK3399 "rk3399_mid" panels whose extended
+    // vendor bar (back/home/recents + volume) ignores the framework immersive flags AND
+    // the Settings.System "hide_system_bar" key. Their stock Settings app fires exactly
+    // these two broadcasts from AccessibilitySettings.hideSystemBarPreferenceClick, and
+    // SystemUI's PhoneStatusBar reacts with add/remove Bar. This is the only lever that
+    // actually removes that bar on this firmware, so it is listed first.
     private val HIDE_ACTIONS = listOf(
+        "com.elclcd.hidebar",
         "android.intent.action.HIDE_NAVIGATION_BAR",
         "com.systemui.navigationbar.hide",
         "com.systemui.statusbar.hide",
         "SYSTEM_BAR_HIDE"
     )
     private val SHOW_ACTIONS = listOf(
+        "com.elclcd.unhidebar",
         "android.intent.action.SHOW_NAVIGATION_BAR",
         "com.systemui.navigationbar.show",
         "com.systemui.statusbar.show",

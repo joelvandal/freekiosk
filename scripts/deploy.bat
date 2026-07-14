@@ -187,26 +187,44 @@ if defined KIOSK_PIN  echo ==^>   pin: (set)
 if defined KIOSK_USER echo ==^>   auth username: !KIOSK_USER!
 %ADB% shell am start -n com.freekiosk/.MainActivity!CFG! --ez kiosk_enabled true --es auto_relaunch "true" --es default_launcher "true"
 
-echo ==^> Removing software navigation bar (ROOTED panels only; skipped otherwise)
-%ADB% root %RQ%
-%ADB% shell "id" | find "uid=0" >nul
-if errorlevel 1 (
-    echo     Device not rooted -- skipping nav-bar removal.
-) else (
-    %ADB% remount
-    %ADB% shell "grep -q qemu.hw.mainkeys /system/build.prop || echo qemu.hw.mainkeys=1 >> /system/build.prop"
-    echo ==^> Verifying build.prop entry (should print qemu.hw.mainkeys=1)
-    %ADB% shell "grep mainkeys /system/build.prop"
-    %ADB% unroot
-    echo ==^> Rebooting to apply
-    %ADB% reboot
-)
+echo ==^> Restoring the navigation bar (app handles hiding in kiosk mode)
+call :restore_navbar
 
 echo ==^> Done
 del "%OUT%" 2>nul
 del "%APK%" 2>nul
 endlocal
 exit /b 0
+
+:restore_navbar
+REM Option A: do NOT strip the navigation bar globally. FreeKiosk hides the OEM
+REM nav bar itself (SystemBarHelper) only while the kiosk is foreground, so the
+REM Back/Home buttons stay available in Android Settings -- you can always press
+REM Home to return to the kiosk or reboot. Older deploys wrote qemu.hw.mainkeys=1
+REM into /system/build.prop, which removed the bar permanently AND system-wide
+REM (including Settings), leaving no way out without ADB. Self-heal that here.
+%ADB% root %RQ%
+%ADB% shell "id" | find "uid=0" >nul
+if errorlevel 1 (
+    echo     Device not rooted -- no global override to undo.
+    goto :eof
+)
+%ADB% shell "grep mainkeys /system/build.prop" > "%OUT%" 2>&1
+findstr /C:"qemu.hw.mainkeys=1" "%OUT%" >nul
+if errorlevel 1 (
+    echo     build.prop clean -- nav bar left to the app ^(hideNavbar setting^).
+    %ADB% unroot %RQ%
+    goto :eof
+)
+echo ==^> Found legacy qemu.hw.mainkeys=1 override -- removing it from build.prop
+%ADB% remount %RQ%
+%ADB% shell "sed -i '/qemu.hw.mainkeys/d' /system/build.prop"
+echo ==^> Verifying removal (should print nothing)
+%ADB% shell "grep mainkeys /system/build.prop"
+%ADB% unroot %RQ%
+echo ==^> Rebooting to apply the restored navigation bar
+%ADB% reboot
+goto :eof
 
 :popval
 set "%~1="
