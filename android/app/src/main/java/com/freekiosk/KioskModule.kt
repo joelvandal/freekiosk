@@ -274,6 +274,37 @@ class KioskModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         }
     }
 
+    /**
+     * Block (or unblock) the factory reset option in system Settings via a Device Owner
+     * user restriction (#201). Unlike lock-task features, DISALLOW_FACTORY_RESET is a
+     * persistent restriction that survives reboots, so it just needs to be set/cleared here.
+     * No-op (resolves false) when not Device Owner.
+     */
+    @ReactMethod
+    fun setFactoryResetBlocked(blocked: Boolean, promise: Promise) {
+        try {
+            val dpm = reactApplicationContext.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val adminComponent = ComponentName(reactApplicationContext, DeviceAdminReceiver::class.java)
+
+            if (!dpm.isDeviceOwnerApp(reactApplicationContext.packageName)) {
+                android.util.Log.d("KioskModule", "setFactoryResetBlocked: not Device Owner, no-op")
+                promise.resolve(false)
+                return
+            }
+
+            if (blocked) {
+                dpm.addUserRestriction(adminComponent, android.os.UserManager.DISALLOW_FACTORY_RESET)
+            } else {
+                dpm.clearUserRestriction(adminComponent, android.os.UserManager.DISALLOW_FACTORY_RESET)
+            }
+            android.util.Log.d("KioskModule", "Factory reset restriction ${if (blocked) "applied" else "cleared"}")
+            promise.resolve(true)
+        } catch (e: Exception) {
+            android.util.Log.e("KioskModule", "setFactoryResetBlocked error: ${e.message}")
+            promise.resolve(false)
+        }
+    }
+
     @ReactMethod
     fun startLockTask(externalAppPackage: String?, allowPowerButton: Boolean, allowNotifications: Boolean, allowSystemInfo: Boolean, allowEmergencyCall: Boolean, promise: Promise) {
         try {
@@ -335,8 +366,20 @@ class KioskModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
                                     // Android requires HOME feature when NOTIFICATIONS is enabled
                                     lockTaskFeatures = lockTaskFeatures or DevicePolicyManager.LOCK_TASK_FEATURE_HOME
                                 }
+
+                                // #208 — Keep the system keyguard alive while in lock task so a native
+                                // screen-lock (PIN/pattern/password) actually prompts after screen off/on.
+                                // Without LOCK_TASK_FEATURE_KEYGUARD, Android disables the keyguard in
+                                // LockTask mode and the configured screen-lock never appears. Gated on the
+                                // opt-in "System screen-lock compatibility" setting AND a secure lock being set.
+                                val screenLockCompat = BootReceiver.readScreenLockCompatFlag(reactApplicationContext) &&
+                                    BootReceiver.isDeviceSecure(reactApplicationContext)
+                                if (screenLockCompat) {
+                                    lockTaskFeatures = lockTaskFeatures or DevicePolicyManager.LOCK_TASK_FEATURE_KEYGUARD
+                                }
+
                                 dpm.setLockTaskFeatures(adminComponent, lockTaskFeatures)
-                                android.util.Log.d("KioskModule", "Lock task features set: blockPowerButton=${!allowPowerButton}, notifications=$allowNotifications, systemInfo=$allowSystemInfo (flags=$lockTaskFeatures)")
+                                android.util.Log.d("KioskModule", "Lock task features set: blockPowerButton=${!allowPowerButton}, notifications=$allowNotifications, systemInfo=$allowSystemInfo, keyguard=$screenLockCompat (flags=$lockTaskFeatures)")
                             }
 
                             dpm.setLockTaskPackages(adminComponent, uniqueWhitelist.toTypedArray())

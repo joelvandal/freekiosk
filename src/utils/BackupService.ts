@@ -56,6 +56,7 @@ const BACKUP_KEYS = [
   // Note: @kiosk_rest_api_key is handled separately via Keychain (secure storage)
   '@kiosk_rest_api_allow_control',
   '@kiosk_allow_power_button',
+  '@kiosk_block_factory_reset',
   '@kiosk_allow_notifications',
   '@kiosk_allow_system_info',
   '@kiosk_hide_navbar',

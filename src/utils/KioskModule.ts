@@ -17,6 +17,8 @@ interface KioskModuleInterface {
   setBlockAutoRelaunch(block: boolean): Promise<boolean>;
   removeDeviceOwner(): Promise<boolean>;
   setScreenLockCompatMode(enabled: boolean): Promise<boolean>;
+  // #201 — Block/unblock the factory reset option in system Settings (Device Owner user restriction)
+  setFactoryResetBlocked(blocked: boolean): Promise<boolean>;
   setDefaultLauncherMode(enabled: boolean): Promise<boolean>;
   reboot(): Promise<boolean>;
   sendRemoteKey(key: string): Promise<boolean>;

@@ -29,6 +29,10 @@ interface SecurityTabProps {
   // Power button
   allowPowerButton: boolean;
   onAllowPowerButtonChange: (value: boolean) => void;
+
+  // Block factory reset (Device Owner only) (#201)
+  blockFactoryReset: boolean;
+  onBlockFactoryResetChange: (value: boolean) => void;
   
   // Notifications (NFC support)
   allowNotifications: boolean;
@@ -115,6 +119,8 @@ const SecurityTab: React.FC<SecurityTabProps> = ({
   onKioskEnabledChange,
   allowPowerButton,
   onAllowPowerButtonChange,
+  blockFactoryReset,
+  onBlockFactoryResetChange,
   allowNotifications,
   onAllowNotificationsChange,
   allowSystemInfo,
@@ -256,6 +262,19 @@ const SecurityTab: React.FC<SecurityTabProps> = ({
             />
           </>
         )}
+
+        {/* Block factory reset — Device Owner only, independent of Lock Mode (#201) */}
+        {isDeviceOwner && (
+          <>
+            <View style={styles.divider} />
+            <SettingsSwitch
+              label="🛑 Block Factory Reset"
+              hint="Removes the 'Factory reset' option from the system Settings app (Device Owner restriction). Useful when the Settings app is on your multi-app whitelist, so locked users can't wipe the device. Persists across reboots. Takes effect immediately, even outside Lock Mode."
+              value={blockFactoryReset}
+              onValueChange={onBlockFactoryResetChange}
+            />
+          </>
+        )}
       </SettingsSection>
       
       {/* Auto Launch */}
@@ -286,7 +305,7 @@ const SecurityTab: React.FC<SecurityTabProps> = ({
             <View style={styles.divider} />
             <SettingsSwitch
               label="🔐 System screen-lock compatibility"
-              hint="Enable ONLY if you set a native Android screen-lock (PIN/password) on this device. FreeKiosk will then step aside for the secure lock screen at boot instead of locking immediately, which prevents the reboot freeze caused by the conflict between the kiosk and the secure lock screen. ⚠️ A system screen-lock means someone must enter the password on the device after every reboot before the kiosk starts — unsuitable for unattended devices. For device security, the FreeKiosk exit PIN + Device Owner is usually the better choice."
+              hint="Enable ONLY if you set a native Android screen-lock (PIN/password) on this device. FreeKiosk then (1) steps aside for the secure lock screen at boot instead of locking immediately — preventing the reboot freeze caused by the conflict between the kiosk and the secure lock screen — and (2) keeps the system keyguard active while pinned, so the screen-lock actually prompts after the screen turns off and back on (without this, lock-task mode disables the keyguard and the password never appears). ⚠️ A system screen-lock means someone must enter the password on the device after every reboot before the kiosk starts, and on every wake — unsuitable for unattended devices. For device security, the FreeKiosk exit PIN + Device Owner is usually the better choice."
               value={screenLockCompatEnabled}
               onValueChange={onScreenLockCompatChange}
             />

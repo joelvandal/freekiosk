@@ -501,6 +501,10 @@ class OverlayService : Service() {
             windowManager?.addView(buttonView, buttonParams)
             DebugLog.d("OverlayService", "Button mode overlay created at $buttonPosition")
         } catch (e: Exception) {
+            // #203 — Keep state consistent: a non-null but detached overlayView blocks
+            // every later recovery path (re-pin loop, SCREEN_ON, onStartCommand)
+            overlayView = null
+            returnButton = null
             DebugLog.errorProduction("OverlayService", "Failed to create button overlay: ${e.message}")
         }
     }
@@ -574,6 +578,9 @@ class OverlayService : Service() {
             windowManager?.addView(overlayView, invisibleParams)
             DebugLog.d("OverlayService", "Tap anywhere overlay created (invisible only)")
         } catch (e: Exception) {
+            // #203 — Keep state consistent: a non-null but detached overlayView blocks
+            // every later recovery path (re-pin loop, SCREEN_ON, onStartCommand)
+            overlayView = null
             DebugLog.errorProduction("OverlayService", "Failed to create tap anywhere overlay: ${e.message}")
         }
     }
@@ -1150,12 +1157,24 @@ class OverlayService : Service() {
      * each cycle. Does NOT touch the status bar.
      */
     private fun repinOverlay() {
+        // #203 — Each removeView is guarded individually: if a view is already detached
+        // (a previous addView failed), removeView throws. Aborting here would leave
+        // overlayView non-null and never call createOverlay(), so every subsequent
+        // re-pin cycle would fail the same way and the 5-tap escape would stay dead.
+        overlayView?.let {
+            try { windowManager?.removeView(it) } catch (e: Exception) {
+                DebugLog.d("OverlayService", "Re-pin: overlay already detached: ${e.message}")
+            }
+        }
+        overlayView = null
+        indicatorView?.let {
+            try { windowManager?.removeView(it) } catch (e: Exception) {
+                DebugLog.d("OverlayService", "Re-pin: indicator already detached: ${e.message}")
+            }
+        }
+        indicatorView = null
+        returnButton = null
         try {
-            overlayView?.let { windowManager?.removeView(it) }
-            overlayView = null
-            indicatorView?.let { windowManager?.removeView(it) }
-            indicatorView = null
-            returnButton = null
             createOverlay()
             DebugLog.d("OverlayService", "Overlay re-pinned (SurfaceView Z-order guard)")
         } catch (e: Exception) {

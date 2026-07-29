@@ -21,6 +21,7 @@ const KEYS = {
   AUTO_LAUNCH: '@kiosk_auto_launch',
   SCREEN_LOCK_COMPAT: '@kiosk_screen_lock_compat',
   DEFAULT_LAUNCHER: '@kiosk_default_launcher',
+  INTERCOM_MODE: '@kiosk_intercom_mode',
   SCREENSAVER_ENABLED: '@screensaver_enabled',
   SCREENSAVER_INACTIVITY_ENABLED: '@screensaver_inactivity_enabled',
   SCREENSAVER_INACTIVITY_DELAY: '@screensaver_inactivity_delay',
@@ -69,6 +70,8 @@ const KEYS = {
   REST_API_ALLOW_CONTROL: '@kiosk_rest_api_allow_control',
   // Power Button setting
   ALLOW_POWER_BUTTON: '@kiosk_allow_power_button',
+  // Block factory reset in system Settings (Device Owner user restriction) (#201)
+  BLOCK_FACTORY_RESET: '@kiosk_block_factory_reset',
   // Notifications (NFC support)
   ALLOW_NOTIFICATIONS: '@kiosk_allow_notifications',
   // Allow System Info (audio fix for Samsung in lock mode)
@@ -325,6 +328,25 @@ export const StorageService = {
       return value ? JSON.parse(value) : false;
     } catch (error) {
       console.error('Error getting default launcher:', error);
+      return false;
+    }
+  },
+
+  //2-WAY AUDIO / INTERCOM MODE (#205) — opt-in; default false → behavior unchanged
+  saveIntercomMode: async (value: boolean): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.INTERCOM_MODE, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving intercom mode:', error);
+    }
+  },
+
+  getIntercomMode: async (): Promise<boolean> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.INTERCOM_MODE);
+      return value ? JSON.parse(value) : false;
+    } catch (error) {
+      console.error('Error getting intercom mode:', error);
       return false;
     }
   },
@@ -1450,6 +1472,25 @@ export const StorageService = {
       return value ? JSON.parse(value) : true; // Default ON - prevents Samsung/OneUI audio mute in lock task mode
     } catch (error) {
       console.error('Error getting allow power button:', error);
+      return false;
+    }
+  },
+
+  // BLOCK FACTORY RESET (#201)
+  saveBlockFactoryReset: async (value: boolean): Promise<void> => {
+    try {
+      await AsyncStorage.setItem(KEYS.BLOCK_FACTORY_RESET, JSON.stringify(value));
+    } catch (error) {
+      console.error('Error saving block factory reset:', error);
+    }
+  },
+
+  getBlockFactoryReset: async (): Promise<boolean> => {
+    try {
+      const value = await AsyncStorage.getItem(KEYS.BLOCK_FACTORY_RESET);
+      return value ? JSON.parse(value) : false; // Default OFF - opt-in, no behavior change for existing installs
+    } catch (error) {
+      console.error('Error getting block factory reset:', error);
       return false;
     }
   },

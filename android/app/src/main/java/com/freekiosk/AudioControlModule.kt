@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.AudioRecordingConfiguration
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -34,9 +35,81 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
     private fun audioManager(): AudioManager =
         reactContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
+    // ─── #205 — 2-way audio / intercom mode ────────────────────────────────────
+    // Opt-in. WebRTC 2-way audio (e.g. a Home Assistant / go2rtc doorbell card) needs the
+    // device in AudioManager.MODE_IN_COMMUNICATION for the microphone back-channel to
+    // actually transmit. Rather than forcing that mode for the whole session (which would
+    // alter the listen-only playback that already works), we watch for ACTIVE microphone
+    // capture via AudioRecordingCallback and switch to communication mode ONLY while the mic
+    // is recording, restoring the previous mode as soon as it stops. Everything below is a
+    // no-op unless the opt-in setting turns it on.
+    private val intercomHandler = Handler(Looper.getMainLooper())
+    private var intercomModeEnabled = false
+    private var intercomActive = false
+    private var savedAudioMode: Int = AudioManager.MODE_NORMAL
+    private var recordingCallback: AudioManager.AudioRecordingCallback? = null
+
     private fun bluetoothAdapter(): BluetoothAdapter? {
         val manager = reactContext.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
         return manager?.adapter
+    }
+
+    @ReactMethod
+    fun setIntercomMode(enabled: Boolean, promise: Promise) {
+        try {
+            intercomHandler.post { applyIntercomMode(enabled) }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.reject("INTERCOM_ERROR", e.message, e)
+        }
+    }
+
+    private fun applyIntercomMode(enabled: Boolean) {
+        if (enabled == intercomModeEnabled) return
+        intercomModeEnabled = enabled
+        val am = audioManager()
+        if (enabled) {
+            if (recordingCallback == null) {
+                val cb = object : AudioManager.AudioRecordingCallback() {
+                    override fun onRecordingConfigChanged(configs: MutableList<AudioRecordingConfiguration>?) {
+                        if (!configs.isNullOrEmpty()) enterCommunicationMode() else exitCommunicationMode()
+                    }
+                }
+                recordingCallback = cb
+                am.registerAudioRecordingCallback(cb, intercomHandler)
+                // Handle the case where capture is already running when the setting is turned on.
+                if (am.activeRecordingConfigurations.isNotEmpty()) enterCommunicationMode()
+            }
+            DebugLog.d("AudioControl", "Intercom mode enabled — watching for mic capture")
+        } else {
+            recordingCallback?.let {
+                try { am.unregisterAudioRecordingCallback(it) } catch (e: Exception) {}
+            }
+            recordingCallback = null
+            exitCommunicationMode()
+            DebugLog.d("AudioControl", "Intercom mode disabled")
+        }
+    }
+
+    private fun enterCommunicationMode() {
+        if (intercomActive) return
+        val am = audioManager()
+        savedAudioMode = am.mode
+        try {
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
+            intercomActive = true
+            DebugLog.d("AudioControl", "Intercom: mic capture started → MODE_IN_COMMUNICATION (was $savedAudioMode)")
+        } catch (e: Exception) {
+            DebugLog.errorProduction("AudioControl", "Intercom: failed to set communication mode: ${e.message}")
+        }
+    }
+
+    private fun exitCommunicationMode() {
+        if (!intercomActive) return
+        val am = audioManager()
+        try { am.mode = savedAudioMode } catch (e: Exception) {}
+        intercomActive = false
+        DebugLog.d("AudioControl", "Intercom: mic capture stopped → restored mode $savedAudioMode")
     }
 
     // ─── State snapshot ───────────────────────────────────────────────────────

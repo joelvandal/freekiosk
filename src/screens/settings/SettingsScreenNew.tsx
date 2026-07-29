@@ -50,7 +50,7 @@ import { ManagedApp } from '../../types/managedApps';
 import { MediaItem, MediaFitMode, generateMediaItemId, detectMediaType } from '../../types/mediaPlayer';
 import FilePickerModule from '../../utils/FilePickerModule';
 
-const { KioskModule, RotationControlModule } = NativeModules;
+const { KioskModule, RotationControlModule, AudioControlModule } = NativeModules;
 
 type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -133,6 +133,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
   const [statusBarTheme, setStatusBarTheme] = useState<'dark' | 'light'>('dark');
   const [keyboardMode, setKeyboardMode] = useState<string>('default');
   const [allowPowerButton, setAllowPowerButton] = useState<boolean>(true);
+  const [blockFactoryReset, setBlockFactoryReset] = useState<boolean>(false);
   const [allowNotifications, setAllowNotifications] = useState<boolean>(false);
   const [allowSystemInfo, setAllowSystemInfo] = useState<boolean>(false);
   const [hideNavbar, setHideNavbar] = useState<boolean>(false);
@@ -218,6 +219,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
   // Custom User Agent
   const [customUserAgent, setCustomUserAgent] = useState<string>('');
   const [pauseWebMediaWhenHidden, setPauseWebMediaWhenHidden] = useState<boolean>(true);
+  const [intercomModeEnabled, setIntercomModeEnabled] = useState<boolean>(false);
   const [basicAuthUsername, setBasicAuthUsername] = useState<string>('');
   const [basicAuthPassword, setBasicAuthPassword] = useState<string>('');
   
@@ -505,6 +507,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
     const savedBackButtonTimerDelay = await StorageService.getBackButtonTimerDelay();
     const savedKeyboardMode = await StorageService.getKeyboardMode();
     const savedAllowPowerButton = await StorageService.getAllowPowerButton();
+    const savedBlockFactoryReset = await StorageService.getBlockFactoryReset();
     const savedAllowNotifications = await StorageService.getAllowNotifications();
     const savedAllowSystemInfo = await StorageService.getAllowSystemInfo();
     const savedHideNavbar = await StorageService.getHideNavbar();
@@ -575,6 +578,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
     setBackButtonTimerDelay(String(savedBackButtonTimerDelay));
     setKeyboardMode(savedKeyboardMode);
     setAllowPowerButton(savedAllowPowerButton);
+    setBlockFactoryReset(savedBlockFactoryReset);
     setAllowNotifications(savedAllowNotifications);
     setAllowSystemInfo(savedAllowSystemInfo);
     setHideNavbar(savedHideNavbar);
@@ -677,6 +681,8 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
     setCustomUserAgent(savedCustomUserAgent);
     const savedPauseWebMediaWhenHidden = await StorageService.getPauseWebMediaWhenHidden();
     setPauseWebMediaWhenHidden(savedPauseWebMediaWhenHidden);
+    const savedIntercomMode = await StorageService.getIntercomMode();
+    setIntercomModeEnabled(savedIntercomMode ?? false);
 
     const savedBasicAuthUsername = await StorageService.getHttpBasicAuthUsername();
     const savedBasicAuthPassword = await getSecureBasicAuthPassword();
@@ -874,6 +880,18 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
       }
     } catch (error) {
       console.warn('Failed to apply default launcher mode:', error);
+    }
+  };
+
+  // #205 — opt-in 2-way audio: put the device in communication audio mode only while the
+  // WebView is capturing the mic, so the WebRTC talk-back channel transmits.
+  const toggleIntercomMode = async (value: boolean) => {
+    setIntercomModeEnabled(value);
+    await StorageService.saveIntercomMode(value);
+    try {
+      await AudioControlModule?.setIntercomMode(value);
+    } catch (error) {
+      console.warn('Failed to apply intercom mode:', error);
     }
   };
 
@@ -1429,6 +1447,7 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
     await StorageService.saveHttpBasicAuthUsername(basicAuthUsername);
     await saveSecureBasicAuthPassword(basicAuthPassword);
     await StorageService.saveAllowPowerButton(allowPowerButton);
+    await StorageService.saveBlockFactoryReset(blockFactoryReset);
     await StorageService.saveAllowNotifications(allowNotifications);
     await StorageService.saveAllowSystemInfo(allowSystemInfo);
     await StorageService.saveHideNavbar(hideNavbar);
@@ -1545,6 +1564,13 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
       } catch (error) {
         // Silent fail
       }
+    }
+
+    // Apply factory-reset restriction independently of Lock Mode (#201). No-op if not Device Owner.
+    try {
+      await KioskModule.setFactoryResetBlocked(blockFactoryReset);
+    } catch (error) {
+      console.warn('[Settings] setFactoryResetBlocked error (non-blocking):', error);
     }
 
     // Start/stop lock task
@@ -1993,6 +2019,8 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
             onCustomUserAgentChange={setCustomUserAgent}
             pauseWebMediaWhenHidden={pauseWebMediaWhenHidden}
             onPauseWebMediaWhenHiddenChange={setPauseWebMediaWhenHidden}
+            intercomModeEnabled={intercomModeEnabled}
+            onIntercomModeChange={toggleIntercomMode}
             screensaverEnabled={screensaverEnabled}
             onScreensaverEnabledChange={setScreensaverEnabled}
             screensaverBrightness={screensaverBrightness}
@@ -2053,6 +2081,8 @@ const SettingsScreenNew: React.FC<SettingsScreenProps> = ({ navigation }) => {
             onKioskEnabledChange={setKioskEnabled}
             allowPowerButton={allowPowerButton}
             onAllowPowerButtonChange={setAllowPowerButton}
+            blockFactoryReset={blockFactoryReset}
+            onBlockFactoryResetChange={setBlockFactoryReset}
             allowNotifications={allowNotifications}
             onAllowNotificationsChange={setAllowNotifications}
             allowSystemInfo={allowSystemInfo}

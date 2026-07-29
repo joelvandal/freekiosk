@@ -683,56 +683,51 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
             console.error('[API] Error setting motion always-on:', error);
           }
         },
-        onSetMode: async (mode: 'webview' | 'external_app', target?: string) => {
+        onSetMode: async (mode: 'webview' | 'external_app' | 'media_player', target?: string) => {
           if (isNavigatingToPinRef.current) {
             console.log('[API] setMode ignored: navigateToPin in progress');
             return;
           }
 
+          // Persist the requested mode (and its target), then re-run loadSettings(): the
+          // same canonical setup path the app runs on every focus / return-from-settings.
+          // Delegating here means every transition between ANY modes (webview, external_app,
+          // media_player, including the dashboard and multi-app variants) is set up exactly
+          // as a normal launch would, without duplicating the per-mode logic. Side effect:
+          // the switch now persists across an app restart, like changing it in Settings.
           if (mode === 'webview') {
-            // Stop external-app services before switching back to webview
-            try { await OverlayServiceModule.stopOverlayService(); } catch {}
-            try { await AppLauncherModule.stopBackgroundMonitor(); } catch {}
-            setIsAppLaunched(false);
-            setDisplayMode('webview');
+            await StorageService.saveDisplayMode('webview');
             if (target) {
-              setUrl(target);
-              setBaseUrl(target);
-              setWebViewKey(k => k + 1);
               await StorageService.saveUrl(target);
             }
-            console.log('[API] Switched to webview mode', target ?? '');
-
-          } else if (mode === 'external_app' && target) {
-            const isInstalled = await AppLauncherModule.isAppInstalled(target);
-            if (!isInstalled) {
-              console.warn('[API] setMode: app not installed:', target);
-              return;
+          } else if (mode === 'external_app') {
+            if (target) {
+              // Explicit package: single-app mode with that app.
+              const isInstalled = await AppLauncherModule.isAppInstalled(target);
+              if (!isInstalled) {
+                console.warn('[API] setMode: app not installed:', target);
+                return;
+              }
+              await StorageService.saveDisplayMode('external_app');
+              await StorageService.saveExternalAppPackage(target);
+              await StorageService.saveExternalAppMode('single');
+            } else {
+              // No package: restore the stored external-app config (e.g. multi-app grid).
+              await StorageService.saveDisplayMode('external_app');
             }
-            // Read overlay settings fresh from storage to avoid stale closure
-            const tapCount = await StorageService.getReturnTapCount();
-            const tapTimeout = await StorageService.getReturnTapTimeout();
-            const retMode = await StorageService.getReturnMode();
-            const retPos = await StorageService.getReturnButtonPosition();
-            const autoRelaunch = await StorageService.getAutoRelaunchApp();
-            const allowNotif = await StorageService.getAllowNotifications();
-
-            setDisplayMode('external_app');
-            setExternalAppPackage(target);
-            setExternalAppMode('single');
-            externalAppModeRef.current = 'single';
-
-            try {
-              await OverlayServiceModule.startOverlayService(
-                tapCount, tapTimeout, retMode, retPos, target, autoRelaunch, allowNotif,
-              );
-            } catch (e) {
-              console.warn('[API] setMode: OverlayService start failed:', e);
-            }
-            await AppLauncherModule.launchExternalApp(target);
-            setIsAppLaunched(true);
-            console.log('[API] Switched to external_app mode:', target);
+          } else if (mode === 'media_player') {
+            await StorageService.saveDisplayMode('media_player');
+          } else {
+            console.warn('[API] setMode: unknown mode:', mode);
+            return;
           }
+
+          // In external_app mode FreeKiosk is backgrounded behind the launched app, so bring
+          // it forward first; loadSettings() then rebuilds the target mode (for external_app
+          // it re-launches the app over us). No-op when already in the foreground.
+          await KioskModule.bringToFront().catch(() => {});
+          await loadSettings();
+          console.log('[API] Switched to', mode, 'mode', target ?? '');
         },
       });
       
@@ -1501,6 +1496,9 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
       if (savedUrl) setUrl(savedUrl);
       setAutoReload(savedAutoReload);
       setPauseWebMediaWhenHidden(savedPauseWebMediaWhenHidden);
+      // #205 — re-apply the opt-in 2-way audio (intercom) mode on each kiosk launch: the
+      // native AudioRecordingCallback registration doesn't survive an app restart. No-op when off.
+      try { NativeModules.AudioControlModule?.setIntercomMode(bool(K.INTERCOM_MODE, false)); } catch {}
       setScreensaverEnabled(savedScreensaverEnabled);
       
       // Broadcast that settings are loaded (for ADB config waiting)
@@ -1541,6 +1539,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
       const savedBackButtonTimerDelay = num(K.BACK_BUTTON_TIMER_DELAY, 5);
       const savedKeyboardMode = str(K.KEYBOARD_MODE) ?? 'default';
       const savedAllowPowerButton = bool(K.ALLOW_POWER_BUTTON, true);
+      const savedBlockFactoryReset = bool(K.BLOCK_FACTORY_RESET, false);
       const savedAllowNotifications = bool(K.ALLOW_NOTIFICATIONS, false);
       const savedAllowSystemInfo = bool(K.ALLOW_SYSTEM_INFO, false);
       const savedHideNavbar = bool(K.HIDE_NAVBAR, false);
@@ -1553,7 +1552,15 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
       setKeyboardMode(savedKeyboardMode);
       setAllowPowerButton(savedAllowPowerButton);
       setAllowNotifications(savedAllowNotifications);
-      
+
+      // Reconcile factory-reset restriction with the stored toggle on every launch (#201),
+      // independently of Lock Mode. No-op natively if not Device Owner.
+      try {
+        await KioskModule.setFactoryResetBlocked(savedBlockFactoryReset);
+      } catch (error) {
+        console.warn('[KioskScreen] setFactoryResetBlocked reconcile error (non-blocking):', error);
+      }
+
       // Load managed apps
       const savedManagedApps = await StorageService.getManagedApps();
       setManagedApps(savedManagedApps);
@@ -1969,7 +1976,13 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
   const triggerScreensaverTimeout = useCallback(() => {
     if (isScheduledSleep) return;
     if (!(screensaverEnabled && inactivityEnabled)) return;
-    if (motionEnabled) {
+    // #190 — No motion pre-check in External App mode: FreeKiosk is backgrounded there,
+    // so the 10s pre-check setTimeout below is frozen by RN (the exact timer freeze the
+    // native countdown works around) and the screensaver never activated. The camera
+    // can't capture from the background anyway, so the pre-check could never see motion.
+    // Activate directly; wake-on-motion still works once the screensaver has brought
+    // FreeKiosk back to the foreground.
+    if (motionEnabled && displayMode !== 'external_app') {
       console.log('[KioskScreen] Inactivity expired — starting motion pre-check');
       setIsPreCheckingMotion(true);
       // Pre-check window; if no motion is detected within it, activate the screensaver
@@ -1983,7 +1996,7 @@ const KioskScreen: React.FC<KioskScreenProps> = ({ navigation }) => {
       Keyboard.dismiss();
       setIsScreensaverActive(true);
     }
-  }, [isScheduledSleep, screensaverEnabled, inactivityEnabled, motionEnabled]);
+  }, [isScheduledSleep, screensaverEnabled, inactivityEnabled, motionEnabled, displayMode]);
 
   const resetTimer = () => {
     clearTimer();
