@@ -126,8 +126,13 @@ class MainActivity : ReactActivity() {
     // and manually add bottom padding so WebView form fields stay visible.
     val contentView = findViewById<View>(android.R.id.content)
     ViewCompat.setOnApplyWindowInsetsListener(contentView) { view, insets ->
-      val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
-      view.setPadding(0, 0, 0, imeInsets.bottom)
+      // Only pad while the IME is actually visible. Some OEM WebViews leave a
+      // stale ime() bottom inset after the keyboard is dismissed, which kept a
+      // blank strip at the bottom and hid part of the page. Gating on
+      // isVisible(ime()) collapses the padding back to 0 as soon as it closes.
+      val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+      val imeBottom = if (imeVisible) insets.getInsets(WindowInsetsCompat.Type.ime()).bottom else 0
+      view.setPadding(0, 0, 0, imeBottom)
       insets
     }
 

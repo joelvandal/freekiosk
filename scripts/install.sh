@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Provision a FreeKiosk tablet over ADB:
 #   - auto-install Android platform-tools (adb) if adb is not on PATH
+#   - build the release APK (npm deps + ./gradlew assembleRelease)
 #   - install the release APK
 #       * auto-recovers from a signature mismatch on ROOTED panels
 #         (removes Device Owner, reboots, uninstalls, reinstalls)
@@ -9,16 +10,21 @@
 #   - set time/timezone and preconfigure the kiosk URL
 #   - (ROOTED panels) remove the software navigation bar permanently
 #
-# Usage: ./install.sh [device-serial] [--url URL] [--pin PIN] [--build] [--debug]
+# Usage: ./install.sh [device-serial] [--url URL] [--pin PIN] [--no-build] [--debug]
 #        --url    Kiosk URL to preconfigure (default: https://kiosk.dev.sirsteward.com).
 #                 Quote URLs that contain & or ?, e.g. --url "https://x/?a=1&b=2".
 #        --pin      Kiosk PIN / password to preconfigure (default: 1234).
 #        --username Website (HTTP Basic) auth username (optional).
 #        --password Website (HTTP Basic) auth password (optional; stored in Keychain).
-#        --build  Build the release APK first (./gradlew assembleRelease) and copy it
-#                 into android/app/release/ before installing.
+#        --no-build Skip the build and install the APK already staged in
+#                   android/app/release/. Fails if there is none.
+#        --build  Accepted for backward compatibility -- building is the default.
 #        --debug  Verbose: trace every command, show hidden errors, dump diagnostics.
 #        If no serial is given, the only connected device is used.
+#
+# The APK is built by default: android/app/release/ is gitignored, so a fresh
+# clone has nothing to install otherwise. Requires JDK 17+, the Android SDK and
+# Node 20+ on PATH.
 #
 # See docs/securing-the-tablet.md for the full explanation of each step.
 
@@ -33,7 +39,7 @@ OUT="$(mktemp)"
 
 # --- parse args: a bare token is the serial, flags toggle features ---
 DEBUG=""
-DOBUILD=""
+DOBUILD=1
 SERIAL=""
 KIOSK_URL="https://kiosk.dev.sirsteward.com"
 KIOSK_PIN="1234"
@@ -42,7 +48,8 @@ KIOSK_PASS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --debug)    DEBUG=1; shift ;;
-    --build)    DOBUILD=1; shift ;;
+    --build)    DOBUILD=1; shift ;;   # default; kept so old invocations still work
+    --no-build) DOBUILD=""; shift ;;
     --url)      KIOSK_URL="${2:-}"; shift 2 ;;
     --pin)      KIOSK_PIN="${2:-}"; shift 2 ;;
     --username) KIOSK_USER="${2:-}"; shift 2 ;;
@@ -73,14 +80,45 @@ if ! command -v adb >/dev/null 2>&1; then
   command -v adb >/dev/null 2>&1 || { echo "==> adb still not available."; exit 1; }
 fi
 
-# --build: produce a fresh release APK and stage it into APK_DIR before installing.
+# Produce a fresh release APK and stage it into APK_DIR before installing.
+# Skipped with --no-build, which then requires a previously staged APK.
 if [[ -n "$DOBUILD" ]]; then
+  ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+  BUILT_APK="$ROOT_DIR/android/app/build/outputs/apk/release/app-release.apk"
+
+  command -v node >/dev/null 2>&1 || { echo "==> node not found on PATH (Node 20+ required to build)."; exit 1; }
+  command -v java >/dev/null 2>&1 || { echo "==> java not found on PATH (JDK 17+ required to build)."; exit 1; }
+
+  # The Gradle bundle task runs Metro, which needs node_modules (and the
+  # postinstall patch-package step) in place.
+  if [[ ! -d "$ROOT_DIR/node_modules" ]]; then
+    echo "==> Installing JS dependencies..."
+    if [[ -f "$ROOT_DIR/package-lock.json" ]]; then
+      ( cd "$ROOT_DIR" && npm ci )
+    else
+      ( cd "$ROOT_DIR" && npm install )
+    fi
+  fi
+
   echo "==> Building release APK (./gradlew assembleRelease)..."
-  ( cd "$SCRIPT_DIR/../android" && ./gradlew assembleRelease )
+  # A clone made on Windows loses the +x bit on gradlew; run it through sh then.
+  if [[ -x "$ROOT_DIR/android/gradlew" ]]; then
+    ( cd "$ROOT_DIR/android" && ./gradlew assembleRelease )
+  else
+    ( cd "$ROOT_DIR/android" && sh ./gradlew assembleRelease )
+  fi
+
+  [[ -f "$BUILT_APK" ]] || { echo "==> Build reported success but $BUILT_APK is missing."; exit 1; }
   mkdir -p "$APK_DIR"
-  cp -f "$SCRIPT_DIR/../android/app/build/outputs/apk/release/app-release.apk" "$APK_DIR/$APK"
+  cp -f "$BUILT_APK" "$APK_DIR/$APK"
   echo "==> Built and staged $APK_DIR/$APK"
 fi
+
+[[ -f "$APK_DIR/$APK" ]] || {
+  echo "==> No APK at $APK_DIR/$APK."
+  echo "    Drop a release build there, or re-run without --no-build to build one."
+  exit 1
+}
 
 cd "$APK_DIR"
 

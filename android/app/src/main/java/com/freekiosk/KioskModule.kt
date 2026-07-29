@@ -104,6 +104,21 @@ class KioskModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaM
         }
     }
 
+    // Raise the soft keyboard at the window level. Best-effort — the page must
+    // have focused an editable field first (see window.freekiosk.keyboard.show()).
+    @ReactMethod
+    fun showKeyboard(promise: Promise) {
+        try {
+            val activity = reactApplicationContext.currentActivity
+            if (activity != null) {
+                KeyboardUtils.show(activity)
+            }
+            promise.resolve(true)
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+
     // #177 — Pause/resume the Android WebView identified by [tag] (its React node handle).
     // react-native-webview's onHostPause() is a no-op, so WebView media keeps playing when the
     // app is backgrounded / the screen is off / the screensaver overlay is shown. WebView.onPause()

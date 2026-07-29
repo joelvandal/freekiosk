@@ -29,7 +29,9 @@ In **Settings → Printer**:
 
 ## JavaScript API
 
-The `window.freekiosk` namespace is injected into the WebView when direct printing is enabled. It exposes three functions:
+The `window.freekiosk` namespace is injected into the WebView when direct printing is enabled. The rest of that namespace — audio, soft keyboard, version / self-update, reboot — is documented in the [JavaScript API reference](javascript-api.md).
+
+Each print function comes in two flavors. The plain form (`print`, `cutPaper`, `openCashDrawer`) is fire-and-forget and returns `undefined`. The `Async` form (`printAsync`, `cutPaperAsync`, `openCashDrawerAsync`) takes the same arguments and returns a `Promise` that resolves to a [status object](#print-status). See [Reading the print status](#reading-the-print-status).
 
 ### `window.freekiosk.print(spec)`
 
@@ -70,6 +72,68 @@ Send a single cut command. `mode` is `'full'` (default) or `'partial'`.
 ### `window.freekiosk.openCashDrawer(pin?)`
 
 Open the cash drawer connected to the printer's DK port. `pin` is `2` (default) or `5`.
+
+---
+
+## Reading the print status
+
+A print can fail for reasons the page can't see: the printer is off, the cable is out, the TCP host in Settings is wrong. There are two ways to find out, and they work together — pick whichever fits.
+
+### `printAsync(spec)` / `cutPaperAsync(mode?)` / `openCashDrawerAsync(pin?)`
+
+Same arguments as their plain counterparts, but they return a `Promise` resolving to a status object:
+
+```js
+const result = await window.freekiosk.printAsync({
+  blocks: [{ type: 'text', text: 'Receipt' }],
+  cut: 'full'
+});
+
+if (!result.ok) {
+  showError('Printer: ' + result.message);
+}
+```
+
+These promises **resolve** on failure rather than reject — check `result.ok`, don't wrap them in `try/catch`.
+
+### `window.freekiosk.onPrintResult`
+
+Assign a function here and it receives the status of **every** print job, including ones started with the plain fire-and-forget `print()`. This is the way to add error reporting to an existing page without touching its print calls:
+
+```js
+window.freekiosk.onPrintResult = function(result) {
+  if (!result.ok) {
+    console.error('[print]', result.code, result.message);
+    showBanner('Printer error: ' + result.message);
+  }
+};
+
+window.freekiosk.print({ blocks: [/* ... */] });   // unchanged, status still arrives above
+```
+
+If both are used, `printAsync()`'s promise and `onPrintResult` both fire for the same job. Correlate them with `requestId` if needed.
+
+### Print status
+
+```ts
+{ ok: true,  requestId: string }
+{ ok: false, requestId: string, code: string, message: string }
+```
+
+`ok: true` means the printer accepted the bytes. It is not a guarantee the paper came out — a thermal printer that's out of paper may still ack the job.
+
+Common `code` values:
+
+| Code | Meaning |
+|------|---------|
+| `INVALID_HOST`    | TCP host is empty — set it in Settings → Printer. |
+| `INVALID_PORT`    | TCP port outside 1..65535 (default 9100). |
+| `INVALID_USB_IDS` | No USB device selected — Settings → Printer → Scan USB devices. |
+| `PRINT_FAILED`    | Transport failure: printer offline, connection refused, cable unplugged, USB permission missing. `message` carries the detail. |
+| `BLOCKS_FAILED`   | The spec's blocks couldn't be encoded (bad base64 raster, bad barcode data). |
+| `BRIDGE_ERROR`    | The call never left the page (serialization failure). |
+
+Treat this list as indicative, not exhaustive — log `code` and `message` together.
 
 ---
 
@@ -404,6 +468,17 @@ if (window.freekiosk && typeof window.freekiosk.print === 'function') {
 }
 ```
 
+Probe for `printAsync` specifically if you rely on the status object, since older FreeKiosk builds expose `print` but not `printAsync`:
+
+```js
+if (window.freekiosk && typeof window.freekiosk.printAsync === 'function') {
+  const result = await window.freekiosk.printAsync({ blocks: [/* ... */], cut: 'full' });
+  if (!result.ok) { showError(result.message); }
+} else if (window.freekiosk) {
+  window.freekiosk.print({ blocks: [/* ... */], cut: 'full' });  // no status available
+}
+```
+
 ---
 
 ## Tips
@@ -411,7 +486,7 @@ if (window.freekiosk && typeof window.freekiosk.print === 'function') {
 - **Image dimensions.** When using `{ type: 'raster' }`, encode the image at or below the paper width to avoid downsampling artifacts. 576 px wide for 80 mm, 384 px for 58 mm.
 - **Character set.** Use CP858 if you need the Euro sign. Use CP1252 for most Western European accented characters. Test with a `testPrint` from Settings to confirm the printer matches.
 - **Latency.** Each call opens a fresh TCP/USB session. To print many lines in one job, batch them into a single `freekiosk.print({ blocks: [...] })` call instead of looping over individual calls.
-- **Errors.** Failures (printer offline, USB permission denied, host unreachable) are logged in the WebView console as `[WebView] Direct print spec failed: …`. The web app's call returns normally — there is no JS-side promise yet.
+- **Errors.** Failures (printer offline, USB permission denied, host unreachable) are reported to the page — `await printAsync()` and check `result.ok`, or set a `window.freekiosk.onPrintResult` hook. See [Reading the print status](#reading-the-print-status). They are also logged natively as `[WebView] Direct print spec failed: …`.
 - **USB permission.** The first time a USB printer is selected, Android prompts the user to allow access. Subsequent prints succeed silently until the device is unplugged.
 
 ---

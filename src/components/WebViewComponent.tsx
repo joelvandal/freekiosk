@@ -68,6 +68,33 @@ export interface WebViewComponentRef {
 // OEM WebView). Ends with `true;` to silence react-native-webview's injection warning.
 const MEDIA_PAUSE_JS = `(function(){try{document.querySelectorAll('audio,video').forEach(function(m){try{m.pause();}catch(e){}});}catch(e){}})();true;`;
 
+/**
+ * Semver-aware compare (mirrors SettingsScreenNew.compareVersions) so
+ * window.freekiosk.update() only installs a build that is actually newer.
+ * Returns 1 if a > b, -1 if a < b, 0 if equal. Stable > any pre-release of the
+ * same core (1.2.15-beta.1 < 1.2.15).
+ */
+const compareVersions = (a: string, b: string): number => {
+  const [core1, pre1] = a.split('-', 2);
+  const [core2, pre2] = b.split('-', 2);
+  const parts1 = core1.split('.').map(Number);
+  const parts2 = core2.split('.').map(Number);
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const n1 = parts1[i] || 0;
+    const n2 = parts2[i] || 0;
+    if (n1 > n2) return 1;
+    if (n1 < n2) return -1;
+  }
+  if (!pre1 && pre2) return 1;
+  if (pre1 && !pre2) return -1;
+  if (!pre1 && !pre2) return 0;
+  const beta1 = parseInt(pre1!.replace(/[^0-9]/g, '') || '0', 10);
+  const beta2 = parseInt(pre2!.replace(/[^0-9]/g, '') || '0', 10);
+  if (beta1 > beta2) return 1;
+  if (beta1 < beta2) return -1;
+  return 0;
+};
+
 const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(({ 
   url, 
   autoReload,
@@ -382,30 +409,77 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
       }));
     };
     ${directPrintEnabled ? `
-    // Direct ESC/POS print API for thermal printers (TM-T88 style)
+    // Direct ESC/POS print API for thermal printers (TM-T88 style).
+    //
+    // Every job now carries a requestId and gets a status object back:
+    //   { ok: true, requestId }
+    //   { ok: false, requestId, code: 'INVALID_HOST', message: '...' }
+    // Two ways to read it, both optional:
+    //   - printAsync()/cutPaperAsync()/openCashDrawerAsync() resolve to it.
+    //   - window.freekiosk.onPrintResult, if set, receives every job's status,
+    //     including jobs started through the legacy fire-and-forget calls.
+    // print()/cutPaper()/openCashDrawer() keep returning undefined so pages
+    // written against the original API are unaffected.
     window.freekiosk = window.freekiosk || {};
-    window.freekiosk.print = function(spec) {
-      try {
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'DIRECT_PRINT_API',
-          spec: spec || {}
-        }));
-      } catch (e) {
-        console.error('[freekiosk.print] failed', e);
+    (function() {
+      var pending = {};
+      var seq = 0;
+
+      window.__fkPrintResolve = function(id, status) {
+        var resolve = pending[id];
+        if (resolve) {
+          delete pending[id];
+          resolve(status);
+        }
+        var hook = window.freekiosk.onPrintResult;
+        if (typeof hook === 'function') {
+          // A throwing hook must not swallow the status of later jobs.
+          try { hook(status); } catch (e) { console.error('[freekiosk.onPrintResult] threw', e); }
+        }
+      };
+
+      // resolve is optional: the legacy calls post the job without one and the
+      // status still reaches onPrintResult.
+      function send(spec, resolve) {
+        var id = 'fp' + (++seq);
+        if (resolve) { pending[id] = resolve; }
+        try {
+          window.ReactNativeWebView.postMessage(JSON.stringify({
+            type: 'DIRECT_PRINT_API',
+            requestId: id,
+            spec: spec || {}
+          }));
+        } catch (e) {
+          delete pending[id];
+          var status = {
+            ok: false,
+            requestId: id,
+            code: 'BRIDGE_ERROR',
+            message: String((e && e.message) || e)
+          };
+          console.error('[freekiosk.print] failed', e);
+          if (resolve) { resolve(status); }
+        }
+        return id;
       }
-    };
-    window.freekiosk.cutPaper = function(mode) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'DIRECT_PRINT_API',
-        spec: { blocks: [{ type: 'cut', mode: mode || 'full' }] }
-      }));
-    };
-    window.freekiosk.openCashDrawer = function(pin) {
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'DIRECT_PRINT_API',
-        spec: { blocks: [{ type: 'drawer', pin: pin || 2 }] }
-      }));
-    };
+
+      function cutSpec(mode) { return { blocks: [{ type: 'cut', mode: mode || 'full' }] }; }
+      function drawerSpec(pin) { return { blocks: [{ type: 'drawer', pin: pin || 2 }] }; }
+
+      window.freekiosk.print = function(spec) { send(spec); };
+      window.freekiosk.cutPaper = function(mode) { send(cutSpec(mode)); };
+      window.freekiosk.openCashDrawer = function(pin) { send(drawerSpec(pin)); };
+
+      window.freekiosk.printAsync = function(spec) {
+        return new Promise(function(resolve) { send(spec, resolve); });
+      };
+      window.freekiosk.cutPaperAsync = function(mode) {
+        return new Promise(function(resolve) { send(cutSpec(mode), resolve); });
+      };
+      window.freekiosk.openCashDrawerAsync = function(pin) {
+        return new Promise(function(resolve) { send(drawerSpec(pin), resolve); });
+      };
+    })();
     ` : ''}
     ` : '// Printing disabled - window.print() not intercepted'}
 
@@ -454,6 +528,51 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
         window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'REBOOT_DEVICE' }));
       } catch (e) { console.error('[freekiosk.reboot] failed', e); }
     };
+
+    // FreeKiosk keyboard + self-update control.
+    //   window.freekiosk.keyboard.show()   — raise the soft keyboard (focuses the
+    //                                          active field first; best-effort)
+    //   window.freekiosk.keyboard.hide()   — dismiss the soft keyboard
+    //   await window.freekiosk.getVersion()          -> { versionName, versionCode }
+    //   await window.freekiosk.checkUpdate({beta})    -> { updateAvailable, current,
+    //          latest, name, notes, publishedAt, downloadUrl, isPrerelease }
+    //   await window.freekiosk.update({beta})         -> { started, ... } downloads &
+    //          installs the latest build only when it is newer than the current one.
+    window.freekiosk = window.freekiosk || {};
+    (function() {
+      var _fkRpcPending = {};
+      var _fkRpcSeq = 0;
+      window.__fkRpcResolve = function(id, result, err) {
+        var p = _fkRpcPending[id];
+        if (!p) return;
+        delete _fkRpcPending[id];
+        if (err) { p.reject(new Error(err)); } else { p.resolve(result); }
+      };
+      function fkRpc(type, extra) {
+        return new Promise(function(resolve, reject) {
+          var id = 'fk' + (++_fkRpcSeq);
+          _fkRpcPending[id] = { resolve: resolve, reject: reject };
+          var msg = { type: type, requestId: id };
+          if (extra) { for (var k in extra) { if (extra.hasOwnProperty(k)) msg[k] = extra[k]; } }
+          try { window.ReactNativeWebView.postMessage(JSON.stringify(msg)); }
+          catch (e) { delete _fkRpcPending[id]; reject(e); }
+        });
+      }
+      window.freekiosk.keyboard = {
+        show: function() {
+          // The IME only appears for a focused editable element; nudge focus first.
+          try {
+            var el = document.activeElement;
+            if (el && typeof el.focus === 'function') { el.focus(); }
+          } catch (e) {}
+          return fkRpc('KEYBOARD_SHOW');
+        },
+        hide: function() { return fkRpc('KEYBOARD_HIDE'); }
+      };
+      window.freekiosk.getVersion  = function() { return fkRpc('UPDATE_GET_VERSION'); };
+      window.freekiosk.checkUpdate = function(opts) { return fkRpc('UPDATE_CHECK', { includeBeta: !!(opts && opts.beta) }); };
+      window.freekiosk.update      = function(opts) { return fkRpc('UPDATE_INSTALL', { includeBeta: !!(opts && opts.beta) }); };
+    })();
 
     // Throttling pour éviter le flood de messages (critique sur Fire OS)
     let lastInteraction = 0;
@@ -831,11 +950,31 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
             .then(() => console.log('[WebView] Direct print bitmap sent'))
             .catch((err: any) => console.error('[WebView] Direct print failed:', err));
         } else if (data.type === 'DIRECT_PRINT_API') {
-          // Structured ESC/POS document from window.freekiosk.print({...})
+          // Structured ESC/POS document from window.freekiosk.print({...}).
+          // Report the outcome back to the page so a web app can react to an
+          // offline / misconfigured printer instead of failing silently.
           const spec = (data.spec || {}) as PrintSpec;
+          const rid = data.requestId;
+          const respond = (status: Record<string, unknown>) => {
+            if (!rid) return; // pre-requestId page still in the WebView
+            webViewRef.current?.injectJavaScript(
+              `window.__fkPrintResolve && window.__fkPrintResolve(${JSON.stringify(rid)}, ${JSON.stringify(status)}); true;`
+            );
+          };
           DirectPrint.printSpec(spec)
-            .then(() => console.log('[WebView] Direct print spec sent'))
-            .catch((err: any) => console.error('[WebView] Direct print spec failed:', err));
+            .then(() => {
+              console.log('[WebView] Direct print spec sent');
+              respond({ ok: true, requestId: rid });
+            })
+            .catch((err: any) => {
+              console.error('[WebView] Direct print spec failed:', err);
+              respond({
+                ok: false,
+                requestId: rid,
+                code: err?.code || 'PRINT_FAILED',
+                message: err?.message || String(err),
+              });
+            });
         } else if (data.type === 'AUDIO_API') {
           // window.freekiosk.audio.get()/set() — bridge to AudioControlModule and
           // resolve the page-side promise via injectJavaScript.
@@ -864,6 +1003,69 @@ const WebViewComponent = forwardRef<WebViewComponentRef, WebViewComponentProps>(
           NativeModules.KioskModule?.reboot?.()
             .then(() => console.log('[WebView] Reboot requested'))
             .catch((err: any) => console.error('[WebView] Reboot failed:', err));
+        } else if (
+          data.type === 'KEYBOARD_SHOW' ||
+          data.type === 'KEYBOARD_HIDE' ||
+          data.type === 'UPDATE_GET_VERSION' ||
+          data.type === 'UPDATE_CHECK' ||
+          data.type === 'UPDATE_INSTALL'
+        ) {
+          // window.freekiosk.keyboard.* / getVersion() / checkUpdate() / update()
+          // Shared RPC bridge — resolves the page-side promise via injectJavaScript.
+          const rid = JSON.stringify(data.requestId);
+          const respond = (result: any, err: any) => {
+            const payload = err ? 'null' : JSON.stringify(result ?? null);
+            const errStr = err ? JSON.stringify(String(err?.message || err)) : 'null';
+            webViewRef.current?.injectJavaScript(
+              `window.__fkRpcResolve && window.__fkRpcResolve(${rid}, ${payload}, ${errStr}); true;`
+            );
+          };
+
+          if (data.type === 'KEYBOARD_SHOW') {
+            KioskModule.showKeyboard()
+              .then(() => respond({ ok: true }, null))
+              .catch((e: any) => respond(null, e));
+          } else if (data.type === 'KEYBOARD_HIDE') {
+            KioskModule.hideKeyboard()
+              .then(() => respond({ ok: true }, null))
+              .catch((e: any) => respond(null, e));
+          } else if (data.type === 'UPDATE_GET_VERSION') {
+            UpdateModule.getCurrentVersion()
+              .then((info: any) => respond(info, null))
+              .catch((e: any) => respond(null, e));
+          } else if (data.type === 'UPDATE_CHECK' || data.type === 'UPDATE_INSTALL') {
+            const includeBeta = !!data.includeBeta;
+            Promise.all([
+              UpdateModule.getCurrentVersion(),
+              UpdateModule.checkForUpdatesWithChannel(includeBeta),
+            ])
+              .then(([current, latest]: [any, any]) => {
+                const updateAvailable = compareVersions(latest.version, current.versionName) > 0;
+                const info = {
+                  updateAvailable,
+                  current: current.versionName,
+                  latest: latest.version,
+                  name: latest.name,
+                  notes: latest.notes,
+                  publishedAt: latest.publishedAt,
+                  downloadUrl: latest.downloadUrl,
+                  isPrerelease: !!latest.isPrerelease,
+                };
+                if (data.type === 'UPDATE_CHECK') {
+                  respond(info, null);
+                  return;
+                }
+                // UPDATE_INSTALL: only download+install when actually newer.
+                if (!updateAvailable) {
+                  respond({ ...info, started: false }, null);
+                  return;
+                }
+                UpdateModule.downloadAndInstall(latest.downloadUrl, latest.version)
+                  .then(() => respond({ ...info, started: true }, null))
+                  .catch((e: any) => respond(null, e));
+              })
+              .catch((e: any) => respond(null, e));
+          }
         } else if (data.type === 'PDF_VIEWER_CLOSE') {
           // User closed PDF viewer, go back to previous page
           if (webViewRef.current) {

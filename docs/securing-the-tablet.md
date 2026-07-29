@@ -250,18 +250,25 @@ at the top of the file if you deploy from your own fork.
 scripts\install.bat [device-serial] [--url URL] [--pin PIN] [--username U] [--password P] [--build] [--debug]
 
 # macOS / Linux
-scripts/install.sh [device-serial] [--url URL] [--pin PIN] [--username U] [--password P] [--build] [--debug]
+scripts/install.sh [device-serial] [--url URL] [--pin PIN] [--username U] [--password P] [--no-build] [--debug]
 ```
 
 Add `--url "https://…"` to set the kiosk URL (default `https://kiosk.dev.sirsteward.com`);
 quote URLs that contain `&` or `?`. Add `--pin PIN` to set the kiosk PIN / password
 (default `1234`). Add `--username U` / `--password P` to preconfigure **Website (HTTP Basic)
 authentication** — the username goes to settings and the password to the device Keychain;
-both are optional and only applied when given. Add `--build` to build a fresh release APK
-(`gradlew assembleRelease`) and stage it into `android/app/release/` before installing. Add
-`--debug` to trace every command, show the errors that are normally hidden, and print
+both are optional and only applied when given.
+
+**Building the APK.** `install.sh` builds a fresh release APK on every run (installs the npm
+dependencies if `node_modules` is missing, then `./gradlew assembleRelease`) and stages it
+into `android/app/release/` before installing — that directory is gitignored, so a fresh
+clone has nothing to install otherwise. It needs JDK 17+, the Android SDK and Node 20+ on
+PATH. Pass `--no-build` to skip the build and flash the APK already staged there.
+`install.bat` still builds only when `--build` is given.
+
+Add `--debug` to trace every command, show the errors that are normally hidden, and print
 diagnostics (ADB devices, installed versionCode/Name, Device Owner state) before and after
-the install. Example: `install.bat --build --url "https://dashboard.example.com/kiosk"`.
+the install. Example: `install.sh --url "https://dashboard.example.com/kiosk"`.
 
 The nav-bar removal section (step 6) runs automatically **only if `adb root` succeeds**; on
 a non-rooted device it is skipped, and the rest of the provisioning still completes.

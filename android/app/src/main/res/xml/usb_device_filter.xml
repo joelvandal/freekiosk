@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  USB device filter for Direct Printing (DirectPrintModule).
+
+  An empty <usb-device /> element matches ANY attached USB device. This is
+  intentionally broad (chosen over a VID/PID- or class-scoped filter) so that
+  whatever ESC/POS printer is plugged in triggers USB_DEVICE_ATTACHED and gets
+  the persistent "always open FreeKiosk for this device" permission grant —
+  without hardcoding a vendor/product id that varies per deployment.
+
+  Trade-off: FreeKiosk will also be offered as a handler for other USB devices
+  (keyboards, storage, etc.). Acceptable for a single-purpose kiosk. To scope it
+  to a specific printer instead, replace with e.g.:
+    <usb-device vendor-id="1208" product-id="3624" />   (decimal; 1208 = 0x04B8)
+-->
+<resources>
+    <usb-device />
+</resources>

@@ -127,6 +127,18 @@
             <category android:name="android.intent.category.HOME" />
             <category android:name="android.intent.category.DEFAULT" />
         </intent-filter>
+        <!-- USB Host: receiving USB_DEVICE_ATTACHED grants this activity implicit
+             permission to the attached device. Ticking "always open FreeKiosk for
+             this device" in the system dialog makes that grant persist across
+             replug / reboot / re-enumeration, so Direct Printing over USB no longer
+             loses permission (fixes intermittent "Permission Denied" on print).
+             The device_filter matches all USB devices (broad, per config). -->
+        <intent-filter>
+            <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+        </intent-filter>
+        <meta-data
+            android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+            android:resource="@xml/usb_device_filter" />
       </activity>
 
       <!-- Device Admin Receiver pour le mode kiosk -->

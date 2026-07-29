@@ -85,6 +85,7 @@ adb shell dpm set-device-owner com.freekiosk/.DeviceAdminReceiver
 | Guide | Description | Link |
 |-------|-------------|------|
 | **Integrations Overview** | Choose between REST API and MQTT | [Read →](Integrations) |
+| **JavaScript API** | Drive the device from the kiosk page: `window.freekiosk` printing, audio, keyboard, self-update, reboot | [Read →](JavaScript-API) |
 | **REST API** | 40+ HTTP endpoints for device control | [Read →](REST-API) |
 | **MQTT** | Real-time telemetry and Home Assistant discovery | [Read →](MQTT) |
 | **ADB Configuration** | Headless provisioning and scripting | [Read →](ADB-Configuration) |

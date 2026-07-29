@@ -30,4 +30,25 @@ object KeyboardUtils {
             }
         }
     }
+
+    /**
+     * Raise the soft keyboard for the currently focused view.
+     *
+     * Best-effort: Android only shows the IME when an editable view holds focus.
+     * For a WebView the page must have focused an <input>/<textarea> first (the
+     * JS side does `document.activeElement.focus()` before calling this), otherwise
+     * there is no input connection and the system ignores the request.
+     */
+    fun show(activity: Activity) {
+        activity.runOnUiThread {
+            try {
+                val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                val focusedView = activity.currentFocus ?: activity.window.decorView
+                imm.showSoftInput(focusedView, InputMethodManager.SHOW_IMPLICIT)
+                Log.d(TAG, "Soft keyboard show requested")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to show keyboard: ${e.message}")
+            }
+        }
+    }
 }

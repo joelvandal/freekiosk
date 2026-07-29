@@ -109,7 +109,19 @@ sealed class PrintTransport : AutoCloseable {
             }
 
             if (!manager.hasPermission(device)) {
-                throw IOException("USB permission not granted for device — call requestUsbPermission first")
+                // USB permission is per-attachment on Android — it is lost on
+                // replug / reboot / re-enumeration (USB power save, hub cycling).
+                // Self-heal: (re)acquire it here instead of hard-failing. If the
+                // USB_DEVICE_ATTACHED "always open" grant is set, hasPermission is
+                // already true and we never reach this; otherwise request() prompts
+                // and blocks (safe — send() runs on a background thread).
+                DebugLog.w(TAG, "USB permission missing — requesting before send")
+                if (!UsbPermissionHelper.request(context, device)) {
+                    throw IOException(
+                        "USB permission denied (VID=0x${vendorId.toString(16)}, PID=0x${productId.toString(16)}). " +
+                            "Grant access in the USB dialog, and tick \"always open FreeKiosk for this device\" so it persists across replug/reboot."
+                    )
+                }
             }
 
             val printerInterface = findPrinterInterface(device)
@@ -125,7 +137,8 @@ sealed class PrintTransport : AutoCloseable {
                 DebugLog.d(TAG, "USB bulk-in endpoint: addr=0x${inEndpoint.address.toString(16)} maxPacketSize=${inEndpoint.maxPacketSize}")
             }
 
-            val conn = manager.openDevice(device) ?: throw IOException("Failed to open USB device")
+            val conn = manager.openDevice(device)
+                ?: throw IOException("Failed to open USB device — permission may have been revoked (replug/reboot/re-enumeration). Re-grant USB access.")
             connection = conn
             iface = printerInterface
 
