@@ -12,6 +12,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.28] - 2026-08-18
+
+### Fixed
+- 🔊 **Tablet speaker goes silent when a USB audio device is attached, and `window.freekiosk.audio.set('both')` could not bring it back.** Composite USB peripherals such as the Storm Interface AudioNav keypad embed a USB sound card (C-Media), which Android registers as `USB_DEVICE` and prefers over the built-in speaker — so as soon as it is plugged, all media silently moves to the USB output. `set('both')` (speaker + jack) mapped to the system default route, i.e. the USB device, so a page re-applying `'both'` periodically kept overriding `set('speaker')` and the speaker stayed silent. `'both'` now pins media to the built-in speaker path whenever a USB audio output is present (a stream can only go to one device; the jack amp is still enabled), and `audio.get()` / `set()` report a new `usbAudio` flag (`output: 'usb'` when the system route is the USB device). USB audio outputs of any type (`USB_DEVICE`, `USB_ACCESSORY`, `USB_HEADSET`) are now also listed and detected by the audio-output dialog, which previously reported "speaker" while sound was actually on USB.
+
 ## [1.2.20-beta.5] - 2026-07-21
 
 ### Fixed

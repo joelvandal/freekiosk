@@ -277,23 +277,52 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
     private val AS_FORCE_SPEAKER = 1
     private val AS_FORCE_HEADPHONES = 2
 
+    /** True when a wired jack (headphones/headset) is detected. */
+    private fun isHeadsetPlugged(am: AudioManager): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
+                it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
+                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET
+            }
+        } else {
+            @Suppress("DEPRECATION") am.isWiredHeadsetOn
+        }
+    }
+
+    /**
+     * True when a USB audio output is attached (USB sound card, USB headset, USB-C
+     * dongle, or a composite device such as the Storm Interface AudioNav keypad which
+     * embeds a C-Media USB DAC). The audio policy prefers USB over the built-in
+     * speaker, so as soon as one is plugged all media silently moves off the speaker.
+     */
+    private fun hasUsbAudioOutput(am: AudioManager): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        return am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { isUsbOutput(it) }
+    }
+
+    private fun isUsbOutput(device: AudioDeviceInfo): Boolean {
+        return device.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+            device.type == AudioDeviceInfo.TYPE_USB_ACCESSORY ||
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && device.type == AudioDeviceInfo.TYPE_USB_HEADSET)
+    }
+
     @ReactMethod
     fun getMediaOutput(promise: Promise) {
         try {
             val am = audioManager()
-            val headsetPlugged = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                am.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any {
-                    it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET
-                }
-            } else {
-                @Suppress("DEPRECATION") am.isWiredHeadsetOn
-            }
+            val headsetPlugged = isHeadsetPlugged(am)
+            val usbAudio = hasUsbAudioOutput(am)
             val map = Arguments.createMap()
-            // Effective output: the forced value if set, else what the system uses now.
-            map.putString("output", mediaForce ?: if (headsetPlugged) "jack" else "speaker")
+            // Effective output: the forced value if set, else what the system uses now
+            // (policy priority: wired jack > USB > speaker).
+            map.putString("output", mediaForce ?: when {
+                headsetPlugged -> "jack"
+                usbAudio -> "usb"
+                else -> "speaker"
+            })
             map.putString("forced", mediaForce)          // null when not overridden
             map.putBoolean("headsetPlugged", headsetPlugged)
+            map.putBoolean("usbAudio", usbAudio)          // a USB audio output is attached
             promise.resolve(map)
         } catch (e: Exception) {
             promise.reject("AUDIO_ERROR", e.message, e)
@@ -304,16 +333,23 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
     fun setMediaOutput(mode: String, promise: Promise) {
         try {
             val normalized = mode.lowercase()
+            val am = audioManager()
+            val usbAudio = hasUsbAudioOutput(am)
             val config = when (normalized) {
                 "speaker" -> AS_FORCE_SPEAKER
                 "jack", "headphones", "headset" -> AS_FORCE_HEADPHONES
-                else -> AS_FORCE_NONE   // "auto" / "both" / unknown
+                // "both" = speaker + jack. Both sit behind the built-in codec, so the
+                // default policy path is right — unless a USB audio output is attached:
+                // the policy would then send media to USB and neither the speaker nor the
+                // jack would play (a stream only goes to one device). Pin media to the
+                // built-in speaker path in that case; the jack amp is still enabled below.
+                "both" -> if (usbAudio) AS_FORCE_SPEAKER else AS_FORCE_NONE
+                else -> AS_FORCE_NONE   // "auto" / unknown
             }
             val privileged = forceMediaUse(config)
             // Public-API fallback when the privileged route is unavailable.
-            val am = audioManager()
             if (!privileged) {
-                if (normalized == "speaker") forceSpeakerRoute(am) else clearExplicitRoute(am)
+                if (config == AS_FORCE_SPEAKER) forceSpeakerRoute(am) else clearExplicitRoute(am)
             }
             // RK3399 + es8316 (rooted): drive the external speaker-amp "spk con" GPIO so
             // the speaker plays even with a jack inserted — the kernel mutes it on jack
@@ -330,6 +366,8 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
             map.putString("output", normalized)
             map.putBoolean("privileged", privileged) // true only if AudioSystem.setForceUse worked
             map.putBoolean("speakerAmp", speakerAmp)  // true if the RK3399 spk-con GPIO was driven
+            map.putBoolean("usbAudio", usbAudio)      // a USB audio output is attached
+            android.util.Log.d("AudioControl", "setMediaOutput($normalized) config=$config usb=$usbAudio privileged=$privileged")
             promise.resolve(map)
         } catch (e: Exception) {
             promise.reject("AUDIO_ERROR", e.message, e)
@@ -625,7 +663,7 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
                 outputs.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO } && am.isBluetoothScoOn -> "bluetooth_sco"
                 outputs.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES } -> "wired_headphones"
                 outputs.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET } -> "wired_headset"
-                outputs.any { it.type == AudioDeviceInfo.TYPE_USB_HEADSET } -> "usb_headset"
+                outputs.any { isUsbOutput(it) } -> "usb_headset"
                 outputs.any { it.type == AudioDeviceInfo.TYPE_HDMI } -> "hdmi"
                 am.isSpeakerphoneOn -> "speaker"
                 else -> "speaker"
@@ -656,10 +694,9 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
             AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "bluetooth_sco"
             AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired_headphones"
             AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired_headset"
-            AudioDeviceInfo.TYPE_USB_HEADSET -> "usb_headset"
             AudioDeviceInfo.TYPE_HDMI -> "hdmi"
             AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
-            else -> null
+            else -> if (isUsbOutput(device)) "usb_headset" else null
         }
     }
 
@@ -678,8 +715,9 @@ class AudioControlModule(private val reactContext: ReactApplicationContext) :
             if (outputs.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET }) {
                 arr.pushMap(makeOutput("wired_headset", "Wired Headset", "wired_headset"))
             }
-            if (outputs.any { it.type == AudioDeviceInfo.TYPE_USB_HEADSET }) {
-                arr.pushMap(makeOutput("usb_headset", "USB Headset", "usb_headset"))
+            outputs.firstOrNull { isUsbOutput(it) }?.let { dev ->
+                val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) dev.productName?.toString()?.takeIf { it.isNotBlank() } else null
+                arr.pushMap(makeOutput("usb_headset", name ?: "USB Audio", "usb_headset"))
             }
             if (outputs.any { it.type == AudioDeviceInfo.TYPE_HDMI }) {
                 arr.pushMap(makeOutput("hdmi", "HDMI / Display", "hdmi"))

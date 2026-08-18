@@ -34,9 +34,10 @@ Control the media audio stream: output routing, volume, and mute. Every method r
 
 ```ts
 window.freekiosk.audio.get(): Promise<{
-  output: 'speaker' | 'jack' | 'both' | 'auto',
+  output: 'speaker' | 'jack' | 'usb' | 'both' | 'auto',
   forced: string | null,     // the value last passed to set(), or null
   headsetPlugged: boolean,   // a wired headset / jack is detected
+  usbAudio: boolean,         // a USB audio output (sound card, USB headset, AudioNav…) is attached
 }>
 
 window.freekiosk.audio.set(
@@ -45,8 +46,16 @@ window.freekiosk.audio.set(
   ok: boolean,
   output: string,
   privileged: boolean,       // true only if the system-level force succeeded
+  usbAudio: boolean,
 }>
 ```
+
+| mode | Effect |
+|---|---|
+| `'auto'` | System default — Android picks the output (jack > USB audio > speaker). |
+| `'speaker'` | Force the built-in speaker, even with a jack or USB audio device attached. |
+| `'jack'` | Force the wired jack. |
+| `'both'` | Speaker **and** jack (RK3399 amp trick). If a USB audio output is attached, media is pinned to the built-in speaker path — Android can only send a stream to one device, and the default would be the USB device, leaving the speaker silent. |
 
 ```js
 const info = await window.freekiosk.audio.get();
